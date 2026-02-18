@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Time Estimation Task — Administrative Procedure Study</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%231864AB'/><text x='50%25' y='55%25' text-anchor='middle' dominant-baseline='middle' fill='white' font-size='16' font-family='sans-serif'>&#9201;</text></svg>">
+</head>
+<body>
+
+  <!-- ============================================================
+       HEADER
+       ============================================================ -->
+  <header class="task-header">
+    <div class="task-header__inner">
+      <span class="task-header__icon">&#9201;</span>
+      <span class="task-header__title">Time Estimation Task</span>
+      <span class="task-header__subtitle">Administrative Procedure Study <span id="condition-label" class="task-header__condition"></span></span>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       TASK PAGES
+       ============================================================ -->
+  <div class="task-container" id="task-pages">
+
+    <!-- ========================================================
+         PAGE 1: CONSENT (shared by both conditions)
+         ======================================================== -->
+    <div class="task-page" id="page-consent">
+      <div class="page-card fade-in">
+        <h1>Research Participation — Informed Consent</h1>
+
+        <p>You are invited to participate in a scientific study. Before proceeding, please consider the following information:</p>
+
+        <div class="inset">
+          <p>In this study, you will be shown a detailed description of a procedure that was completed by other Prolific participants as part of an experiment. You will be asked to <strong>estimate how long each part of the procedure took</strong> those participants, on average, to complete.</p>
+          <p>You will see a process map that breaks the procedure into steps and may reveal additional details about the actions involved.</p>
+          <p>There are no risks involved in this study. Your privacy will be fully respected, and all data will be collected and analysed anonymously.</p>
+          <p>Participation is voluntary. You may withdraw at any time without penalty.</p>
+        </div>
+
+        <div class="consent-group">
+          <label>
+            <input type="checkbox" id="consent-checkbox">
+            I agree to participate in this study.
+          </label>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn btn-primary" id="consent-continue" disabled>Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 2: INTRODUCTION (shared, with context for both)
+         ======================================================== -->
+    <div class="task-page" id="page-intro">
+      <div class="page-card fade-in">
+        <h1>About the experiment</h1>
+
+        <p>In a recent experiment on Prolific, participants completed a <strong>fictional online government application</strong>. Your task is to estimate how long it took them.</p>
+
+        <div class="inset" style="border-left-color: #E67700;">
+          <p><strong>What participants did:</strong> They role-played as a fictional resident of "Newland" and completed an online application for a <em>Municipal Green Zone Vehicle Access Permit</em> — a permit required to drive in restricted low-emission zones.</p>
+          <p>The application required them to provide personal details, assess their eligibility, enter vehicle information from official documents, and submit supporting documentation.</p>
+        </div>
+
+        <h2>How the experiment worked</h2>
+        <div id="experiment-context"></div>
+
+        <h2>Overview of the procedure</h2>
+        <p id="process-stats"></p>
+        <div id="overview-map" class="overview-map"></div>
+
+        <h2>Your task</h2>
+        <p>You will be asked to <strong>estimate how long it took participants, on average, to complete the procedure itself</strong> — from the first form page (entering personal details) to clicking "Submit application". This does <strong>not</strong> include the time spent reading the consent form or the task instructions beforehand. Please be as precise as possible — you can give your estimates in both minutes and seconds.</p>
+
+        <div class="btn-group" style="justify-content: flex-end;">
+          <button class="btn btn-primary" id="intro-continue">Begin estimation &#8594;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 3A: PHASE-BY-PHASE ESTIMATION (detailed condition)
+         ======================================================== -->
+    <div class="task-page" id="page-estimation">
+      <div id="progress-bar" class="progress-bar"></div>
+      <div id="phase-nav" class="phase-nav"></div>
+      <div id="phase-content" class="phase-content"></div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 3B: SIMPLE ESTIMATION (simple condition)
+         ======================================================== -->
+    <div class="task-page" id="page-simple-estimation">
+      <div id="simple-content" class="simple-estimation-container"></div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 4: SUMMARY (detailed condition only)
+         ======================================================== -->
+    <div class="task-page" id="page-summary">
+      <div class="page-card fade-in">
+        <h1>Review your estimates</h1>
+        <p>Here is a summary of all your time estimates. Please review them before continuing.</p>
+        <div id="summary-content"></div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 5: DEMOGRAPHICS (shared)
+         ======================================================== -->
+    <div class="task-page" id="page-demographics">
+      <div class="page-card fade-in">
+        <h1>A few questions about you</h1>
+        <p>These questions help us understand who participated in this study.</p>
+
+        <form id="demographics-form">
+          <div class="form-group">
+            <label>Have you ever completed a government administrative procedure online (e.g., permit application, registration, benefits claim)?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="admin_experience" value="never"> Never</label>
+              <label><input type="radio" name="admin_experience" value="once_twice"> Once or twice</label>
+              <label><input type="radio" name="admin_experience" value="several"> Several times</label>
+              <label><input type="radio" name="admin_experience" value="many"> Many times</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Have you ever applied for a vehicle-related permit or registration?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="vehicle_permit_exp" value="yes"> Yes</label>
+              <label><input type="radio" name="vehicle_permit_exp" value="no"> No</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>How confident do you feel about your time estimates overall?</label>
+            <div class="radio-group">
+              <label><input type="radio" name="overall_confidence" value="not_at_all"> Not at all confident</label>
+              <label><input type="radio" name="overall_confidence" value="slightly"> Slightly confident</label>
+              <label><input type="radio" name="overall_confidence" value="moderately"> Moderately confident</label>
+              <label><input type="radio" name="overall_confidence" value="very"> Very confident</label>
+              <label><input type="radio" name="overall_confidence" value="extremely"> Extremely confident</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Any comments about the task or your estimates? (optional)</label>
+            <textarea name="feedback" rows="4" style="width:100%;max-width:500px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
+          </div>
+        </form>
+
+        <div class="btn-group" style="justify-content: flex-end;">
+          <button class="btn btn-primary" id="demo-submit">Submit and finish &#8594;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 6: COMPLETION (shared)
+         ======================================================== -->
+    <div class="task-page" id="page-complete">
+      <div class="page-card fade-in" style="text-align: center; padding: 48px 32px;">
+        <h1 style="color: var(--green);">Thank you!</h1>
+        <p style="font-size: 17px;">Your time estimates have been recorded. Thank you for participating in this study.</p>
+        <p>Please click the button below to return to Prolific and confirm your submission.</p>
+        <div class="btn-group" style="justify-content: center; margin-top: 24px;">
+          <a href="#" id="prolific-redirect" class="btn btn-primary">Return to Prolific</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================
+       SCRIPTS
+       ============================================================ -->
+  <script src="/js/process-data.js"></script>
+  <script src="/js/process-map-svg.js"></script>
+  <script src="/js/app.js"></script>
+
+</body>
+</html>
