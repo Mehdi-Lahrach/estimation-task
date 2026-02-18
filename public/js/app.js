@@ -35,6 +35,7 @@
       stepsExpanded: [],
       timeOnTaskMs: 0,
     },
+    errorRateEstimate: {},    // { percentage: 0-100, confidence: 1-5 }
     demographics: {},
     startTime: Date.now(),
     expandedSteps: new Set(),
@@ -316,7 +317,7 @@
       </div>
 
       <div class="btn-group" style="justify-content: flex-end; padding: 16px 0;">
-        <button class="btn btn-primary" id="detailed-submit">Review estimates &#8594;</button>
+        <button class="btn btn-primary" id="detailed-submit">Continue &#8594;</button>
       </div>
     `;
 
@@ -425,11 +426,11 @@
     wireEstimationInputs(content);
     wireConfidenceButtons(content);
 
-    // Submit button → validate then go to summary
+    // Submit button → validate then go to error rate estimation
     document.getElementById('detailed-submit').addEventListener('click', () => {
       if (validateAllEstimates()) {
-        showPage('summary');
-        renderSummary();
+        showPage('error-estimation');
+        initErrorRateEstimation('detailed');
       }
     });
   }
@@ -657,7 +658,78 @@
       }
 
       if (!valid) return;
-      showPage('demographics');
+      showPage('error-estimation');
+      initErrorRateEstimation('simple');
+    });
+  }
+
+  // ============================================================
+  // ERROR RATE ESTIMATION (both conditions)
+  // ============================================================
+
+  function initErrorRateEstimation(fromCondition) {
+    const input = document.getElementById('error-rate-input');
+    const submitBtn = document.getElementById('error-rate-submit');
+
+    // Restore saved values if any
+    if (state.errorRateEstimate) {
+      if (state.errorRateEstimate.percentage !== null && state.errorRateEstimate.percentage !== undefined) {
+        input.value = state.errorRateEstimate.percentage;
+      }
+    }
+
+    // Wire confidence buttons for error_rate block
+    const confContainer = document.querySelector('.estimation-block__confidence[data-block-id="error_rate"]');
+    if (confContainer) {
+      confContainer.querySelectorAll('.likert-btn').forEach(btn => {
+        // Restore selected state
+        if (state.errorRateEstimate && state.errorRateEstimate.confidence === parseInt(btn.dataset.level)) {
+          btn.classList.add('selected');
+        }
+        btn.addEventListener('click', () => {
+          confContainer.querySelectorAll('.likert-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          confContainer.classList.remove('confidence-missing');
+          if (!state.errorRateEstimate) state.errorRateEstimate = {};
+          state.errorRateEstimate.confidence = parseInt(btn.dataset.level);
+        });
+      });
+    }
+
+    // Save input on change
+    input.addEventListener('input', () => {
+      if (!state.errorRateEstimate) state.errorRateEstimate = {};
+      const val = input.value.trim();
+      state.errorRateEstimate.percentage = val !== '' ? parseInt(val) : null;
+      input.style.borderColor = '';
+    });
+
+    // Submit: validate and proceed
+    submitBtn.addEventListener('click', () => {
+      let valid = true;
+
+      // Validate percentage
+      const val = input.value.trim();
+      const num = parseInt(val);
+      if (val === '' || isNaN(num) || num < 0 || num > 100) {
+        input.style.borderColor = 'var(--red)';
+        valid = false;
+      }
+
+      // Validate confidence
+      if (!state.errorRateEstimate || !state.errorRateEstimate.confidence) {
+        if (confContainer) confContainer.classList.add('confidence-missing');
+        valid = false;
+      }
+
+      if (!valid) return;
+
+      if (fromCondition === 'detailed') {
+        showPage('summary');
+        renderSummary();
+      } else {
+        showPage('demographics');
+      }
     });
   }
 
@@ -695,6 +767,12 @@
     const totalMin = Math.floor(totalSeconds / 60);
     const totalSec = totalSeconds % 60;
 
+    // Error rate estimate summary
+    const errEst = state.errorRateEstimate || {};
+    const errConfLabels = { 1: '1 — Not at all', 2: '2', 3: '3', 4: '4', 5: '5 — Extremely' };
+    const errConf = errEst.confidence ? (errConfLabels[errEst.confidence] || errEst.confidence) : '—';
+    const errPct = errEst.percentage !== null && errEst.percentage !== undefined ? `${errEst.percentage}%` : '—';
+
     container.innerHTML = `
       <div class="summary-total">
         <span>Your total estimated time for the entire procedure</span>
@@ -707,6 +785,18 @@
         </thead>
         <tbody>${tableRows}</tbody>
       </table>
+
+      <div style="margin: 24px 0; padding: 16px 20px; background: #fff8e1; border-left: 4px solid #e67700; border-radius: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <strong style="color: #e67700;">Application quality estimate</strong>
+            <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              Estimated rejection rate &nbsp;&middot;&nbsp; Confidence: ${errConf}
+            </div>
+          </div>
+          <div style="font-size: 24px; font-weight: 700; color: #e67700;">${errPct}</div>
+        </div>
+      </div>
 
       <p style="margin: 16px 0; color: var(--text-muted); font-size: 14px;">
         You can go back to adjust any estimate before continuing. Once you proceed, your estimates will be recorded.
@@ -765,6 +855,22 @@
       radios.forEach(r => { state.demographics[r.name] = r.value; });
       textInputs.forEach(t => { if (t.value.trim()) state.demographics[t.name] = t.value.trim(); });
 
+      showPage('feedback');
+    });
+  }
+
+  // ============================================================
+  // FEEDBACK & SUBMISSION
+  // ============================================================
+
+  function initFeedback() {
+    document.getElementById('feedback-submit').addEventListener('click', async () => {
+      // Collect optional pilot feedback
+      const feedbackText = document.querySelector('#feedback-form textarea[name="pilot_feedback"]');
+      if (feedbackText && feedbackText.value.trim()) {
+        state.demographics.pilot_feedback = feedbackText.value.trim();
+      }
+
       // Calculate total in seconds
       let totalSeconds = 0;
       Object.values(state.estimates).forEach(e => {
@@ -785,6 +891,7 @@
             estimates: state.estimates,
             totalEstimateSeconds: totalSeconds,
             totalEstimateMinutes: Math.round(totalSeconds / 60 * 100) / 100,
+            errorRateEstimate: state.errorRateEstimate || null,
             interactions: state.interactions,
             demographics: state.demographics,
           }),
@@ -811,6 +918,7 @@
     initConsent();
     initIntro();
     initDemographics();
+    initFeedback();
 
     // Set Prolific redirect link
     const redirectLink = document.getElementById('prolific-redirect');

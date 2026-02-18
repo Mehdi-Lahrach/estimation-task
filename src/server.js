@@ -32,6 +32,64 @@ function readJsonl(filename) {
 }
 
 // ============================================================
+// BLOCK RANDOMIZATION (CONSORT-compliant)
+// ============================================================
+// Uses permuted blocks of size 4 (2 detailed + 2 simple, shuffled).
+// Guarantees perfect balance at every 4th participant.
+// Within each block, order is random → unpredictable.
+// Falls back to balanced coin-flip when between blocks.
+
+const BLOCK_SIZE = 4; // must be even
+const CONDITIONS = ['detailed', 'simple'];
+
+function blockRandomize(existingSessions) {
+  // Only count non-forced assignments (researcher previews don't affect balancing)
+  const assigned = existingSessions
+    .filter(s => !s.condition_forced && s.condition)
+    .map(s => s.condition);
+
+  const total = assigned.length;
+  const posInBlock = total % BLOCK_SIZE;
+
+  if (posInBlock === 0) {
+    // Starting a new block — generate a fresh permuted block and return first element
+    // Block = [BLOCK_SIZE/2 of each condition], shuffled
+    const block = [];
+    for (const c of CONDITIONS) {
+      for (let i = 0; i < BLOCK_SIZE / 2; i++) block.push(c);
+    }
+    // Fisher-Yates shuffle
+    for (let i = block.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [block[i], block[j]] = [block[j], block[i]];
+    }
+    // Store the block for subsequent assignments within this block
+    blockRandomize._currentBlock = block;
+    return block[0];
+  }
+
+  // Mid-block: use the stored block if available and consistent
+  if (blockRandomize._currentBlock && blockRandomize._currentBlock.length === BLOCK_SIZE) {
+    const expected = blockRandomize._currentBlock.slice(0, posInBlock);
+    const actual = assigned.slice(-posInBlock);
+    // Verify the block is still consistent with what was assigned
+    const consistent = expected.every((c, i) => c === actual[i]);
+    if (consistent) {
+      return blockRandomize._currentBlock[posInBlock];
+    }
+  }
+
+  // Fallback: server restarted mid-block or block got out of sync.
+  // Use balanced assignment (assign to smaller group, random tie-break).
+  const detailedCount = assigned.filter(c => c === 'detailed').length;
+  const simpleCount = assigned.filter(c => c === 'simple').length;
+  if (detailedCount < simpleCount) return 'detailed';
+  if (simpleCount < detailedCount) return 'simple';
+  return Math.random() < 0.5 ? 'detailed' : 'simple';
+}
+blockRandomize._currentBlock = null;
+
+// ============================================================
 // SESSION MANAGEMENT
 // ============================================================
 
@@ -55,14 +113,7 @@ app.post('/api/session/create', (req, res) => {
   // Randomize condition if not forced via URL param
   // condition will be null/undefined when no ?CONDITION= was set
   if (!condition || !['detailed', 'simple'].includes(condition)) {
-    // Balanced randomization: count existing assignments, assign to the smaller group
-    const detailedCount = existing.filter(s => s.condition === 'detailed').length;
-    const simpleCount = existing.filter(s => s.condition === 'simple').length;
-    if (detailedCount <= simpleCount) {
-      condition = 'detailed';
-    } else {
-      condition = 'simple';
-    }
+    condition = blockRandomize(existing);
   }
 
   const session_id = uuidv4();
@@ -86,7 +137,7 @@ app.post('/api/session/create', (req, res) => {
 // ============================================================
 
 app.post('/api/estimation/submit', (req, res) => {
-  const { session_id, condition, estimates, interactions,
+  const { session_id, condition, estimates, errorRateEstimate, interactions,
           totalEstimateSeconds, totalEstimateMinutes, demographics } = req.body;
 
   if (!session_id) return res.status(400).json({ error: 'session_id required' });
@@ -95,6 +146,7 @@ app.post('/api/estimation/submit', (req, res) => {
     session_id,
     condition: condition || null,
     estimates,
+    errorRateEstimate: errorRateEstimate || null,
     totalEstimateSeconds: totalEstimateSeconds || null,
     totalEstimateMinutes: totalEstimateMinutes || null,
     interactions,
@@ -162,6 +214,12 @@ app.get('/api/export/csv', requireKey, (req, res) => {
       });
     }
 
+    // Add error rate estimate
+    if (est.errorRateEstimate) {
+      row['error_rate_percentage'] = est.errorRateEstimate.percentage !== null && est.errorRateEstimate.percentage !== undefined ? est.errorRateEstimate.percentage : '';
+      row['error_rate_confidence'] = est.errorRateEstimate.confidence || '';
+    }
+
     // Add interactions
     if (est.interactions) {
       row['phases_explored'] = (est.interactions.phasesExpanded || []).length;
@@ -199,70 +257,618 @@ app.get('/api/export/json', requireKey, (req, res) => {
 });
 
 // ============================================================
-// DASHBOARD
+// STATS API — comprehensive analysis endpoint
+// ============================================================
+
+// Estimation block names for display
+const BLOCK_NAMES = {
+  entering_personal_details: 'A — Entering personal details',
+  reading_eligibility: 'B — Reading eligibility rules',
+  selecting_documents: 'C — Selecting documents',
+  entering_vehicle_info: 'D — Entering vehicle info',
+  declaration_submit: 'E — Declaration & submit',
+  overall: 'Overall estimate',
+};
+const blockName = id => BLOCK_NAMES[id] || id.replace(/_/g, ' ');
+
+// Map estimation blocks to procedure task page groups (for ground truth matching)
+const BLOCK_TO_PROCEDURE_PAGES = {
+  entering_personal_details: ['applicant_details'],
+  reading_eligibility: ['eligibility_rules', 'eligibility_decision'],
+  selecting_documents: ['doc_upload_eligibility', 'doc_upload_residence'],
+  entering_vehicle_info: ['vehicle_info', 'vehicle_category', 'vehicle_fuel', 'vehicle_env_class'],
+  declaration_submit: ['declaration'],
+};
+
+// Procedure task ground truth — configurable
+// Set PROCEDURE_STATS_URL env var to auto-fetch, or edit these defaults after collecting data
+let PROCEDURE_GROUND_TRUTH = {
+  configured: false,
+  totalMeanSec: null,
+  totalMedianSec: null,
+  actualRejectionRate: null,
+  byBlock: {},  // { blockId: { meanSec, medianSec } }
+};
+
+// Try to fetch procedure task ground truth
+const PROCEDURE_STATS_URL = process.env.PROCEDURE_STATS_URL || 'http://localhost:3000/api/stats?key=research2025';
+
+async function fetchProcedureGroundTruth() {
+  try {
+    const resp = await fetch(PROCEDURE_STATS_URL);
+    if (!resp.ok) return;
+    const stats = await resp.json();
+    if (!stats.page_stats || stats.page_stats.length === 0) return;
+
+    // Build page timing map
+    const pageMap = {};
+    stats.page_stats.forEach(p => { pageMap[p.pageId] = p.avgTimeMs; });
+
+    // Compute per-block ground truth (sum of page times)
+    const byBlock = {};
+    for (const [blockId, pages] of Object.entries(BLOCK_TO_PROCEDURE_PAGES)) {
+      const totalMs = pages.reduce((sum, pid) => sum + (pageMap[pid] || 0), 0);
+      if (totalMs > 0) {
+        byBlock[blockId] = { meanSec: Math.round(totalMs / 1000) };
+      }
+    }
+
+    // Total procedure time (application pages only)
+    const appPages = Object.values(BLOCK_TO_PROCEDURE_PAGES).flat();
+    const totalAppMs = appPages.reduce((sum, pid) => sum + (pageMap[pid] || 0), 0);
+
+    PROCEDURE_GROUND_TRUTH = {
+      configured: true,
+      totalMeanSec: totalAppMs > 0 ? Math.round(totalAppMs / 1000) : null,
+      totalMedianSec: null, // median not available from stats endpoint — mean only
+      actualRejectionRate: stats.quality_rejection_rate || null,
+      byBlock,
+    };
+    console.log('  Ground truth loaded from procedure task');
+  } catch (e) {
+    // Procedure task not running — ground truth will show as unconfigured
+  }
+}
+
+// Helper stats functions
+function median(arr) {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function mean(arr) {
+  if (arr.length === 0) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function stdDev(arr) {
+  if (arr.length < 2) return 0;
+  const m = mean(arr);
+  return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));
+}
+
+function cohenD(arr1, arr2) {
+  if (arr1.length < 2 || arr2.length < 2) return null;
+  const m1 = mean(arr1), m2 = mean(arr2);
+  const sd1 = stdDev(arr1), sd2 = stdDev(arr2);
+  const pooledSd = Math.sqrt(((arr1.length - 1) * sd1 ** 2 + (arr2.length - 1) * sd2 ** 2) / (arr1.length + arr2.length - 2));
+  return pooledSd > 0 ? (m1 - m2) / pooledSd : null;
+}
+
+function fmtSec(sec) {
+  if (!sec && sec !== 0) return '—';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m === 0) return `${s}s`;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+app.get('/api/stats', requireKey, async (req, res) => {
+  try {
+    // Refresh ground truth on each stats call
+    await fetchProcedureGroundTruth();
+
+    const sessions = readJsonl('sessions.jsonl');
+    const estimations = readJsonl('estimations.jsonl');
+    const estMap = {};
+    estimations.forEach(e => { estMap[e.session_id] = e; });
+
+    // Merge sessions with their estimation data
+    const merged = sessions.map(s => ({ ...s, estimation: estMap[s.session_id] || null }));
+
+    const total = merged.length;
+    const completed = merged.filter(s => s.completed);
+    const dropped = merged.filter(s => !s.completed);
+    const completedDetailed = completed.filter(s => s.condition === 'detailed');
+    const completedSimple = completed.filter(s => s.condition === 'simple');
+    const detailedAll = merged.filter(s => s.condition === 'detailed');
+    const simpleAll = merged.filter(s => s.condition === 'simple');
+
+    // Time on task (estimation task completion time)
+    const taskTimes = completed.map(s => s.estimation?.interactions?.timeOnTaskMs || 0).filter(t => t > 0);
+    const medianTaskTimeMs = median(taskTimes);
+
+    // Per-condition total estimates (in seconds)
+    function getTotalEstSec(s) {
+      return s.estimation?.totalEstimateSeconds || 0;
+    }
+    const detailedEstimates = completedDetailed.map(getTotalEstSec).filter(v => v > 0);
+    const simpleEstimates = completedSimple.map(getTotalEstSec).filter(v => v > 0);
+    const allEstimates = [...detailedEstimates, ...simpleEstimates];
+
+    // Per-block estimates (detailed condition only has individual blocks)
+    const blockIds = ['entering_personal_details', 'reading_eligibility', 'selecting_documents', 'entering_vehicle_info', 'declaration_submit'];
+    const blockStats = {};
+    blockIds.forEach(bid => {
+      const vals = [];
+      const confs = [];
+      completedDetailed.forEach(s => {
+        const est = s.estimation?.estimates?.[bid];
+        if (est) {
+          const sec = (est.minutes || 0) * 60 + (est.seconds || 0);
+          if (sec > 0) vals.push(sec);
+          if (est.confidence) confs.push(est.confidence);
+        }
+      });
+      const gt = PROCEDURE_GROUND_TRUTH.byBlock[bid];
+      const meanVal = mean(vals);
+      const bias = gt && gt.meanSec && meanVal ? ((meanVal - gt.meanSec) / gt.meanSec * 100) : null;
+      blockStats[bid] = {
+        n: vals.length,
+        meanSec: meanVal,
+        medianSec: median(vals),
+        sdSec: stdDev(vals),
+        meanConf: mean(confs),
+        groundTruthSec: gt?.meanSec || null,
+        biasPercent: bias,
+      };
+    });
+
+    // Overall estimate block (simple condition)
+    const overallConfs = [];
+    completedSimple.forEach(s => {
+      const est = s.estimation?.estimates?.overall;
+      if (est?.confidence) overallConfs.push(est.confidence);
+    });
+
+    // Error rate estimates
+    const detailedErrRates = completedDetailed.map(s => s.estimation?.errorRateEstimate?.percentage).filter(v => v !== null && v !== undefined);
+    const simpleErrRates = completedSimple.map(s => s.estimation?.errorRateEstimate?.percentage).filter(v => v !== null && v !== undefined);
+    const allErrRates = [...detailedErrRates, ...simpleErrRates];
+    const errRateConfs = completed.map(s => s.estimation?.errorRateEstimate?.confidence).filter(v => v);
+
+    // Confidence analysis
+    const detailedConfs = [];
+    completedDetailed.forEach(s => {
+      if (s.estimation?.estimates) {
+        Object.values(s.estimation.estimates).forEach(e => { if (e.confidence) detailedConfs.push(e.confidence); });
+      }
+    });
+
+    // Behavioral engagement
+    const detailedPhases = completedDetailed.map(s => (s.estimation?.interactions?.phasesExpanded || []).length);
+    const simplePhases = completedSimple.map(s => (s.estimation?.interactions?.phasesExpanded || []).length);
+    const detailedSteps = completedDetailed.map(s => (s.estimation?.interactions?.stepsExpanded || []).length);
+    const simpleSteps = completedSimple.map(s => (s.estimation?.interactions?.stepsExpanded || []).length);
+    const detailedTaskTimes = completedDetailed.map(s => s.estimation?.interactions?.timeOnTaskMs || 0).filter(t => t > 0);
+    const simpleTaskTimes = completedSimple.map(s => s.estimation?.interactions?.timeOnTaskMs || 0).filter(t => t > 0);
+
+    // Demographics breakdown
+    const demoBreakdown = {};
+    ['admin_experience', 'vehicle_permit_exp', 'overall_confidence'].forEach(field => {
+      const counts = {};
+      completed.forEach(s => {
+        const val = s.estimation?.demographics?.[field];
+        if (val) counts[val] = (counts[val] || 0) + 1;
+      });
+      demoBreakdown[field] = counts;
+    });
+
+    // Condition comparison — effect size
+    const conditionD = cohenD(detailedEstimates, simpleEstimates);
+
+    // Overall estimation bias
+    const overallMeanEst = mean(allEstimates);
+    const overallBias = PROCEDURE_GROUND_TRUTH.totalMeanSec && overallMeanEst
+      ? ((overallMeanEst - PROCEDURE_GROUND_TRUTH.totalMeanSec) / PROCEDURE_GROUND_TRUTH.totalMeanSec * 100)
+      : null;
+
+    res.json({
+      // Section 1: Data quality
+      total_sessions: total,
+      completed_sessions: completed.length,
+      dropped_sessions: dropped.length,
+      dropout_rate: total > 0 ? Math.round(dropped.length / total * 100) : 0,
+      detailed_completed: completedDetailed.length,
+      simple_completed: completedSimple.length,
+      detailed_total: detailedAll.length,
+      simple_total: simpleAll.length,
+      median_task_time_ms: medianTaskTimeMs,
+      median_task_time_formatted: fmtSec(medianTaskTimeMs / 1000),
+
+      // Section 2: Ground truth
+      ground_truth: PROCEDURE_GROUND_TRUTH,
+
+      // Section 3: Estimation accuracy
+      overall_mean_estimate_sec: mean(allEstimates),
+      overall_median_estimate_sec: median(allEstimates),
+      detailed_mean_estimate_sec: mean(detailedEstimates),
+      detailed_median_estimate_sec: median(detailedEstimates),
+      simple_mean_estimate_sec: mean(simpleEstimates),
+      simple_median_estimate_sec: median(simpleEstimates),
+      detailed_sd_sec: stdDev(detailedEstimates),
+      simple_sd_sec: stdDev(simpleEstimates),
+      condition_cohen_d: conditionD,
+      overall_bias_percent: overallBias,
+      block_stats: blockStats,
+
+      // Error rate estimates
+      error_rate_mean_all: mean(allErrRates),
+      error_rate_mean_detailed: mean(detailedErrRates),
+      error_rate_mean_simple: mean(simpleErrRates),
+      error_rate_n_all: allErrRates.length,
+      actual_rejection_rate: PROCEDURE_GROUND_TRUTH.actualRejectionRate,
+      error_rate_mean_confidence: mean(errRateConfs),
+
+      // Section 4: Confidence
+      detailed_mean_confidence: mean(detailedConfs),
+      simple_mean_confidence: mean(overallConfs),
+      block_confidence: Object.fromEntries(blockIds.map(bid => [bid, blockStats[bid].meanConf])),
+
+      // Section 5: Engagement
+      detailed_mean_phases: mean(detailedPhases),
+      simple_mean_phases: mean(simplePhases),
+      detailed_mean_steps: mean(detailedSteps),
+      simple_mean_steps: mean(simpleSteps),
+      detailed_mean_task_time_ms: mean(detailedTaskTimes),
+      simple_mean_task_time_ms: mean(simpleTaskTimes),
+
+      // Section 6: Demographics
+      demographics: demoBreakdown,
+    });
+  } catch (err) {
+    console.error('Stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Delete all data (piloting) ---
+app.post('/api/delete-all-data', requireKey, (req, res) => {
+  try {
+    const { confirmation } = req.body;
+    if (confirmation !== 'i want to delete the data') {
+      return res.status(400).json({ error: 'Invalid confirmation text. You must type exactly: i want to delete the data' });
+    }
+    const files = fs.readdirSync(DATA_DIR);
+    let deleted = 0;
+    files.forEach(f => {
+      if (f.endsWith('.jsonl') || f.endsWith('.json')) {
+        fs.unlinkSync(path.join(DATA_DIR, f));
+        deleted++;
+      }
+    });
+    console.log(`  [DELETE] All data erased (${deleted} files) by researcher`);
+    res.json({ success: true, filesDeleted: deleted });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================================
+// DASHBOARD — Full analysis (client-side rendered from /api/stats)
 // ============================================================
 
 app.get('/dashboard', requireKey, (req, res) => {
-  const sessions = readJsonl('sessions.jsonl');
-  const estimations = readJsonl('estimations.jsonl');
-  const estMap = {};
-  estimations.forEach(e => { estMap[e.session_id] = e; });
+  res.send(`<!DOCTYPE html><html><head><title>Estimation Task — Analysis Dashboard</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;color:#333;background:#fafafa}
+h1{color:#1864ab;margin-bottom:5px}
+.subtitle{color:#666;font-size:14px;margin-bottom:25px}
+h2{color:#1864ab;border-bottom:2px solid #1864ab;padding-bottom:8px;margin-top:35px}
+h3{color:#333;margin-top:22px;margin-bottom:10px}
+.stats-grid{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.stat{background:white;border:1px solid #e0e0e0;padding:14px 20px;border-radius:8px;min-width:120px}
+.stat-value{font-size:24px;font-weight:700;color:#1864ab}
+.stat-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.3px}
+.stat--green .stat-value{color:#2b8a3e}
+.stat--blue .stat-value{color:#1864ab}
+.stat--amber .stat-value{color:#e67700}
+.stat--red .stat-value{color:#c92a2a}
+.stat--purple .stat-value{color:#862e9c}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+th{background:#1864ab;color:white;padding:8px 12px;text-align:left;white-space:nowrap;font-size:12px}
+td{padding:6px 12px;border-bottom:1px solid #e0e0e0}
+tr:nth-child(even){background:#f8f8f8}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.bar{height:16px;border-radius:2px;display:inline-block;vertical-align:middle;min-width:2px}
+.bar--blue{background:#1864ab}.bar--green{background:#2b8a3e}.bar--amber{background:#e67700}.bar--red{background:#c92a2a}.bar--purple{background:#862e9c}
+.help{font-size:13px;color:#666;margin-top:3px;line-height:1.5}
+.legend{background:white;border:1px solid #e0e0e0;border-radius:6px;padding:12px 16px;margin:10px 0;font-size:13px;line-height:1.6}
+.config-box{background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:12px 16px;margin:10px 0;font-size:13px}
+.export{background:white;border:1px solid #e0e0e0;padding:20px;border-radius:8px;margin:20px 0}
+pre{background:#f5f5f5;padding:12px;border-radius:6px;font-size:12px;overflow-x:auto}
+a{color:#1864ab}
+.bias-pos{color:#c92a2a;font-weight:600}
+.bias-neg{color:#2b8a3e;font-weight:600}
+.bias-neutral{color:#666}
+.dual-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.dual-col{grid-template-columns:1fr}}
+.cond-tag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:0.3px}
+.cond-tag--detailed{background:#e8f4f8;color:#1864ab}
+.cond-tag--simple{background:#f3e5f5;color:#862e9c}
+</style></head>
+<body>
+<h1>Estimation Task — Analysis Dashboard</h1>
+<p class="subtitle">Descriptive statistics and analysis overview. Inferential tests should be run in R/Python.</p>
 
-  const total = sessions.length;
-  const completed = sessions.filter(s => s.completed).length;
-  const detailedCount = sessions.filter(s => s.condition === 'detailed').length;
-  const simpleCount = sessions.filter(s => s.condition === 'simple').length;
+<h2>1. Data Quality &amp; Collection Status</h2>
+<div id="s1-cards" class="stats-grid"></div>
+<div id="s1-balance" class="legend"></div>
 
-  // Compute averages per estimation block (in seconds)
-  const blockTotals = {};
-  const blockCounts = {};
-  estimations.forEach(e => {
-    if (e.estimates) {
-      Object.entries(e.estimates).forEach(([blockId, data]) => {
-        const totalSec = (data.minutes || 0) * 60 + (data.seconds || 0);
-        if (totalSec > 0) {
-          blockTotals[blockId] = (blockTotals[blockId] || 0) + totalSec;
-          blockCounts[blockId] = (blockCounts[blockId] || 0) + 1;
-        }
-      });
-    }
-  });
+<h2>2. Ground Truth from Procedure Task</h2>
+<p class="help">Actual completion times from the procedure task, used as benchmark for estimation accuracy. Fetched live from <code>${PROCEDURE_STATS_URL.replace(/key=.*/, 'key=***')}</code>.</p>
+<div id="s2-status"></div>
+<div id="s2-cards" class="stats-grid"></div>
+<table id="s2-table"><thead><tr><th>Block</th><th>Actual Mean</th></tr></thead><tbody></tbody></table>
 
-  let blockRows = '';
-  Object.entries(blockTotals).forEach(([blockId, total]) => {
-    const avgSec = total / blockCounts[blockId];
-    const avgMin = Math.floor(avgSec / 60);
-    const avgRemSec = Math.round(avgSec % 60);
-    const display = avgRemSec > 0 ? `${avgMin} min ${avgRemSec} sec` : `${avgMin} min`;
-    blockRows += `<tr><td>${blockId.replace(/_/g, ' ')}</td><td>${display}</td><td>${blockCounts[blockId]}</td></tr>`;
-  });
+<h2>3. Estimation Accuracy</h2>
+<p class="help">Comparing participants' estimates to actual procedure times. Bias = (estimated − actual) / actual.</p>
 
-  const avgTotalSec = estimations.length > 0
-    ? estimations.reduce((sum, e) => sum + (e.totalEstimateSeconds || 0), 0) / estimations.length
-    : 0;
-  const avgTotalMin = Math.floor(avgTotalSec / 60);
-  const avgTotalRemSec = Math.round(avgTotalSec % 60);
-  const avgDisplay = avgTotalSec > 0
-    ? (avgTotalRemSec > 0 ? `${avgTotalMin} min ${avgTotalRemSec} sec` : `${avgTotalMin} min`)
-    : '—';
+<h3>3a. Overall estimates vs. actual</h3>
+<div id="s3-overview" class="stats-grid"></div>
 
-  res.send(`<!DOCTYPE html><html><head><title>Estimation Task Dashboard</title>
-<style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 20px}
-.cards{display:flex;gap:16px;margin:20px 0;flex-wrap:wrap}.card{flex:1;min-width:140px;padding:18px;border-radius:8px;text-align:center}
-.card h3{margin:0 0 6px;font-size:12px;text-transform:uppercase;opacity:0.7;letter-spacing:0.5px}.card .val{font-size:28px;font-weight:bold}
-.card.blue{background:#e8f4f8;color:#1864ab}.card.green{background:#e8f5e9;color:#2b8a3e}
-.card.amber{background:#fff8e1;color:#e67700}.card.purple{background:#f3e5f5;color:#862e9c}
-table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:10px 14px;text-align:left;border-bottom:1px solid #ddd}
-th{background:#f5f5f5;font-weight:600;font-size:13px;text-transform:uppercase}</style></head><body>
-<h1>Estimation Task — Dashboard</h1>
-<div class="cards">
-  <div class="card blue"><h3>Total Sessions</h3><div class="val">${total}</div></div>
-  <div class="card green"><h3>Completed</h3><div class="val">${completed}</div></div>
-  <div class="card amber"><h3>Avg Total Estimate</h3><div class="val">${avgDisplay}</div></div>
-  <div class="card purple"><h3>Detailed / Simple</h3><div class="val">${detailedCount} / ${simpleCount}</div></div>
+<h3>3b. Condition comparison (main hypothesis)</h3>
+<p class="help">Do detailed (summed per-block) estimates differ from simple (single overall) estimates?</p>
+<div id="s3-condition" class="stats-grid"></div>
+<div id="s3-effect" class="legend"></div>
+
+<h3>3c. Per-block accuracy (detailed condition)</h3>
+<table id="s3-block-table"><thead><tr><th>Block</th><th>Mean Estimate</th><th>Actual</th><th>Bias</th><th>SD</th><th>N</th><th></th></tr></thead><tbody></tbody></table>
+
+<h3>3d. Error rate estimation</h3>
+<p class="help">Participants estimated what % of applications would be rejected due to substantive errors.</p>
+<div id="s3-error" class="stats-grid"></div>
+
+<h2>4. Confidence Analysis</h2>
+<div id="s4-overview" class="stats-grid"></div>
+<table id="s4-block-table"><thead><tr><th>Block</th><th>Mean Confidence</th><th></th></tr></thead><tbody></tbody></table>
+
+<h2>5. Behavioral Engagement</h2>
+<p class="help">How participants interacted with the process map during the estimation task.</p>
+<table id="s5-table"><thead><tr><th>Metric</th><th><span class="cond-tag cond-tag--detailed">Detailed</span></th><th><span class="cond-tag cond-tag--simple">Simple</span></th></tr></thead><tbody></tbody></table>
+
+<h2>6. Demographics</h2>
+<div id="s6-tables" class="dual-col"></div>
+
+<div class="export">
+<h2 style="border:none;margin-top:0">Export Data</h2>
+<p><a href="/api/export/csv?key=${EXPORT_KEY}"><strong>Download CSV</strong></a> — one row per participant, includes per-block estimates, confidence, error rate, demographics, interactions</p>
+<p><a href="/api/export/json?key=${EXPORT_KEY}"><strong>All data (JSON)</strong></a> &nbsp;|&nbsp; <a href="/api/stats?key=${EXPORT_KEY}"><strong>Stats API (JSON)</strong></a></p>
 </div>
-<h2>Average Estimates by Block</h2>
-<table><tr><th>Estimation Block</th><th>Avg Estimate</th><th>N</th></tr>${blockRows || '<tr><td colspan="3">No data yet</td></tr>'}</table>
+
+<div class="export" style="border:2px solid #c92a2a;background:#fff5f5">
+<h2 style="border:none;margin-top:0;color:#c92a2a">Erase All Data</h2>
+<p style="color:#666;font-size:13px">Delete all collected session data. Use this during piloting to start fresh. <strong>This cannot be undone.</strong></p>
+<div id="delete-section">
+  <button id="delete-btn-1" style="background:#c92a2a;color:white;border:none;padding:10px 24px;border-radius:5px;cursor:pointer;font-size:14px;font-weight:600">Delete all data</button>
+</div>
+<div id="delete-step2" style="display:none;margin-top:12px">
+  <p style="color:#c92a2a;font-weight:600;margin-bottom:8px">Are you sure? Type <code>i want to delete the data</code> below to confirm:</p>
+  <input id="delete-confirm-input" type="text" placeholder="Type confirmation here..." style="padding:8px 12px;border:1px solid #c92a2a;border-radius:4px;width:300px;font-size:14px">
+  <button id="delete-btn-2" style="background:#c92a2a;color:white;border:none;padding:8px 20px;border-radius:5px;cursor:pointer;font-size:14px;margin-left:8px;font-weight:600">Confirm &amp; Delete</button>
+  <button id="delete-cancel" style="background:#f3f2f1;color:#333;border:1px solid #ccc;padding:8px 20px;border-radius:5px;cursor:pointer;font-size:14px;margin-left:4px">Cancel</button>
+  <p id="delete-error" style="color:#c92a2a;font-size:13px;margin-top:6px;display:none"></p>
+</div>
+<div id="delete-success" style="display:none;margin-top:12px;color:#2b8a3e;font-weight:600"></div>
+</div>
+
+<h3>Import into R</h3>
+<pre>df &lt;- read.csv("http://YOUR_SERVER:3001/api/export/csv?key=${EXPORT_KEY}")
+completed &lt;- df[df$$completed == "true", ]
+detailed &lt;- completed[completed$$condition == "detailed", ]
+simple   &lt;- completed[completed$$condition == "simple", ]
+
+# Main hypothesis test:
+t.test(detailed$$total_estimate_seconds, simple$$total_estimate_seconds)
+wilcox.test(detailed$$total_estimate_seconds, simple$$total_estimate_seconds)</pre>
+
+<h3>Import into Python</h3>
+<pre>import pandas as pd
+from scipy import stats
+
+df = pd.read_csv("http://YOUR_SERVER:3001/api/export/csv?key=${EXPORT_KEY}")
+completed = df[df.completed == "true"]
+detailed = completed[completed.condition == "detailed"]
+simple   = completed[completed.condition == "simple"]
+
+# Main hypothesis test:
+stats.ttest_ind(detailed.total_estimate_seconds, simple.total_estimate_seconds)
+stats.mannwhitneyu(detailed.total_estimate_seconds, simple.total_estimate_seconds)</pre>
+
+<script>
+const K = '${EXPORT_KEY}';
+const fmt = sec => {
+  if (!sec && sec !== 0) return '—';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  if (m === 0) return s + 's';
+  return s > 0 ? m + 'm ' + s + 's' : m + 'm';
+};
+const pct = v => v !== null && v !== undefined ? v.toFixed(1) + '%' : '—';
+const dec = (v, d) => v !== null && v !== undefined ? v.toFixed(d) : '—';
+const card = (label, val, color) => '<div class="stat' + (color ? ' stat--' + color : '') + '"><div class="stat-value">' + val + '</div><div class="stat-label">' + label + '</div></div>';
+const biasHtml = b => {
+  if (b === null || b === undefined) return '<span class="bias-neutral">—</span>';
+  const sign = b > 0 ? '+' : '';
+  const cls = b > 5 ? 'bias-pos' : b < -5 ? 'bias-neg' : 'bias-neutral';
+  return '<span class="' + cls + '">' + sign + b.toFixed(1) + '%</span>';
+};
+
+fetch('/api/stats?key=' + K).then(r => r.json()).then(s => {
+  // ── Section 1: Data Quality ──
+  const dropRate = s.dropout_rate || 0;
+  document.getElementById('s1-cards').innerHTML = [
+    card('Total Sessions', s.total_sessions, ''),
+    card('Completed', s.completed_sessions, 'green'),
+    card('Dropped', s.dropped_sessions, s.dropped_sessions > 0 ? 'red' : ''),
+    card('Dropout Rate', dropRate + '%', dropRate > 20 ? 'red' : dropRate > 10 ? 'amber' : 'green'),
+    card('Median Task Time', s.median_task_time_formatted, ''),
+  ].join('');
+
+  const dComp = s.detailed_completed || 0;
+  const sComp = s.simple_completed || 0;
+  const dTot = s.detailed_total || 0;
+  const sTot = s.simple_total || 0;
+  document.getElementById('s1-balance').innerHTML =
+    '<strong>Condition balance:</strong> ' +
+    '<span class="cond-tag cond-tag--detailed">Detailed</span> ' + dComp + ' completed / ' + dTot + ' total &nbsp;&nbsp; ' +
+    '<span class="cond-tag cond-tag--simple">Simple</span> ' + sComp + ' completed / ' + sTot + ' total' +
+    (Math.abs(dComp - sComp) > 2 ? ' &nbsp;<span style="color:#e67700">⚠ Imbalanced</span>' : ' &nbsp;<span style="color:#2b8a3e">✓ Balanced</span>');
+
+  // ── Section 2: Ground Truth ──
+  const gt = s.ground_truth || {};
+  if (!gt.configured) {
+    document.getElementById('s2-status').innerHTML = '<div class="config-box">⚠ Ground truth not available. Make sure the procedure task server is running on port 3000 with data collected. The dashboard will auto-fetch when available.</div>';
+  } else {
+    document.getElementById('s2-status').innerHTML = '<div class="legend" style="border-left:3px solid #2b8a3e">✓ Ground truth loaded from procedure task.</div>';
+    document.getElementById('s2-cards').innerHTML = [
+      card('Actual Mean Total', fmt(gt.totalMeanSec), 'green'),
+      card('Actual Rejection Rate', gt.actualRejectionRate !== null ? gt.actualRejectionRate + '%' : '—', gt.actualRejectionRate > 20 ? 'red' : 'amber'),
+    ].join('');
+
+    const blockRows = Object.entries(gt.byBlock || {}).map(([bid, d]) =>
+      '<tr><td>' + (bid.replace(/_/g, ' ')) + '</td><td class="num">' + fmt(d.meanSec) + '</td></tr>'
+    ).join('');
+    document.querySelector('#s2-table tbody').innerHTML = blockRows || '<tr><td colspan="2">No block data</td></tr>';
+  }
+
+  // ── Section 3: Estimation Accuracy ──
+  const overallBias = s.overall_bias_percent;
+  document.getElementById('s3-overview').innerHTML = [
+    card('Mean Estimate (all)', fmt(s.overall_mean_estimate_sec), 'blue'),
+    card('Median Estimate (all)', fmt(s.overall_median_estimate_sec), ''),
+    card('Actual Mean', gt.configured ? fmt(gt.totalMeanSec) : '—', 'green'),
+    card('Overall Bias', biasHtml(overallBias), ''),
+  ].join('');
+
+  // Condition comparison
+  document.getElementById('s3-condition').innerHTML = [
+    card('Detailed Mean', fmt(s.detailed_mean_estimate_sec), 'blue'),
+    card('Detailed SD', fmt(s.detailed_sd_sec), ''),
+    card('Simple Mean', fmt(s.simple_mean_estimate_sec), 'purple'),
+    card('Simple SD', fmt(s.simple_sd_sec), ''),
+  ].join('');
+
+  const dVal = s.condition_cohen_d;
+  document.getElementById('s3-effect').innerHTML =
+    "<strong>Cohen's d:</strong> " + (dVal !== null ? dVal.toFixed(3) : '—') + ' (detailed − simple)' +
+    (dVal !== null ? ' &mdash; ' + (Math.abs(dVal) < 0.2 ? 'negligible' : Math.abs(dVal) < 0.5 ? 'small' : Math.abs(dVal) < 0.8 ? 'medium' : 'large') + ' effect' : '') +
+    '<br><span style="font-size:12px;color:#666">Run t-test / Mann-Whitney in R or Python for p-values and confidence intervals.</span>';
+
+  // Per-block table
+  const blockIds = ['entering_personal_details', 'reading_eligibility', 'selecting_documents', 'entering_vehicle_info', 'declaration_submit'];
+  const bs = s.block_stats || {};
+  const maxBlockSec = Math.max(...blockIds.map(bid => bs[bid]?.meanSec || 0), 1);
+  document.querySelector('#s3-block-table tbody').innerHTML = blockIds.map(bid => {
+    const b = bs[bid] || {};
+    const barW = b.meanSec ? Math.round(b.meanSec / maxBlockSec * 100) : 0;
+    return '<tr><td>' + bid.replace(/_/g, ' ') + '</td>' +
+      '<td class="num">' + fmt(b.meanSec) + '</td>' +
+      '<td class="num">' + (b.groundTruthSec ? fmt(b.groundTruthSec) : '—') + '</td>' +
+      '<td class="num">' + biasHtml(b.biasPercent) + '</td>' +
+      '<td class="num">' + fmt(b.sdSec) + '</td>' +
+      '<td class="num">' + (b.n || 0) + '</td>' +
+      '<td><span class="bar bar--blue" style="width:' + barW + '%">&nbsp;</span></td></tr>';
+  }).join('') || '<tr><td colspan="7">No data</td></tr>';
+
+  // Error rate
+  document.getElementById('s3-error').innerHTML = [
+    card('Mean Est. (all)', pct(s.error_rate_mean_all), ''),
+    card('Detailed', pct(s.error_rate_mean_detailed), 'blue'),
+    card('Simple', pct(s.error_rate_mean_simple), 'purple'),
+    card('Actual Rejection', s.actual_rejection_rate !== null ? s.actual_rejection_rate + '%' : '—', 'green'),
+    card('Mean Confidence', dec(s.error_rate_mean_confidence, 1), ''),
+  ].join('');
+
+  // ── Section 4: Confidence ──
+  document.getElementById('s4-overview').innerHTML = [
+    card('Detailed Avg Conf.', dec(s.detailed_mean_confidence, 2), 'blue'),
+    card('Simple Avg Conf.', dec(s.simple_mean_confidence, 2), 'purple'),
+  ].join('');
+
+  const blockConf = s.block_confidence || {};
+  const maxConf = 5;
+  document.querySelector('#s4-block-table tbody').innerHTML = blockIds.map(bid => {
+    const c = blockConf[bid] || 0;
+    const barW = Math.round(c / maxConf * 100);
+    return '<tr><td>' + bid.replace(/_/g, ' ') + '</td><td class="num">' + dec(c, 2) + ' / 5</td>' +
+      '<td><span class="bar bar--amber" style="width:' + barW + '%">&nbsp;</span></td></tr>';
+  }).join('') || '<tr><td colspan="3">No data</td></tr>';
+
+  // ── Section 5: Engagement ──
+  document.querySelector('#s5-table tbody').innerHTML = [
+    ['Phases explored (mean)', dec(s.detailed_mean_phases, 1), dec(s.simple_mean_phases, 1)],
+    ['Steps expanded (mean)', dec(s.detailed_mean_steps, 1), dec(s.simple_mean_steps, 1)],
+    ['Time on task (mean)', fmt(s.detailed_mean_task_time_ms / 1000), fmt(s.simple_mean_task_time_ms / 1000)],
+  ].map(([m, d, si]) => '<tr><td>' + m + '</td><td class="num">' + d + '</td><td class="num">' + si + '</td></tr>').join('');
+
+  // ── Section 6: Demographics ──
+  const demos = s.demographics || {};
+  const demoLabels = {
+    admin_experience: 'Admin procedure experience',
+    vehicle_permit_exp: 'Vehicle permit experience',
+    overall_confidence: 'Overall confidence in estimates',
+  };
+  let demoHtml = '';
+  Object.entries(demoLabels).forEach(([field, label]) => {
+    const counts = demos[field] || {};
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const maxCount = Math.max(...entries.map(e => e[1]), 1);
+    let rows = entries.map(([val, count]) => {
+      const barW = Math.round(count / maxCount * 100);
+      return '<tr><td>' + val.replace(/_/g, ' ') + '</td><td class="num">' + count + '</td><td><span class="bar bar--blue" style="width:' + barW + '%">&nbsp;</span></td></tr>';
+    }).join('');
+    demoHtml += '<div><h3>' + label + '</h3><table><thead><tr><th>Response</th><th>N</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3">No data</td></tr>') + '</tbody></table></div>';
+  });
+  document.getElementById('s6-tables').innerHTML = demoHtml;
+});
+
+// Delete data flow
+document.getElementById('delete-btn-1').onclick = function() {
+  document.getElementById('delete-btn-1').style.display = 'none';
+  document.getElementById('delete-step2').style.display = 'block';
+  document.getElementById('delete-confirm-input').focus();
+};
+document.getElementById('delete-cancel').onclick = function() {
+  document.getElementById('delete-step2').style.display = 'none';
+  document.getElementById('delete-btn-1').style.display = '';
+  document.getElementById('delete-confirm-input').value = '';
+  document.getElementById('delete-error').style.display = 'none';
+};
+document.getElementById('delete-btn-2').onclick = function() {
+  const val = document.getElementById('delete-confirm-input').value.trim().toLowerCase();
+  const errEl = document.getElementById('delete-error');
+  if (val !== 'i want to delete the data') {
+    errEl.textContent = 'Confirmation text does not match. Please type exactly: i want to delete the data';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  fetch('/api/delete-all-data?key='+K, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ confirmation: val })
+  }).then(r=>r.json()).then(d => {
+    if (d.success) {
+      document.getElementById('delete-step2').style.display = 'none';
+      document.getElementById('delete-success').style.display = 'block';
+      document.getElementById('delete-success').textContent = 'All data deleted ('+d.filesDeleted+' files). Refresh the page to see empty dashboard.';
+    } else {
+      errEl.textContent = d.error || 'Deletion failed';
+      errEl.style.display = 'block';
+    }
+  }).catch(e => { errEl.textContent = 'Request failed: '+e.message; errEl.style.display = 'block'; });
+};
+</script>
 </body></html>`);
 });
 
@@ -275,7 +881,7 @@ app.listen(PORT, () => {
   console.log(`  Researcher preview (forced condition):`);
   console.log(`    Detailed:  http://localhost:${PORT}/?CONDITION=detailed`);
   console.log(`    Simple:    http://localhost:${PORT}/?CONDITION=simple\n`);
-  console.log(`  Participant URL (server-randomized 50/50):`);
+  console.log(`  Participant URL (block-randomized, balanced):`);
   console.log(`    http://localhost:${PORT}/?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}\n`);
   console.log(`  Dashboard:   http://localhost:${PORT}/dashboard?key=${EXPORT_KEY}`);
   console.log(`  CSV Export:  http://localhost:${PORT}/api/export/csv?key=${EXPORT_KEY}\n`);

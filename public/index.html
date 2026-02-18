@@ -101,6 +101,64 @@
     </div>
 
     <!-- ========================================================
+         PAGE 3C: ERROR RATE ESTIMATION (both conditions)
+         ======================================================== -->
+    <div class="task-page" id="page-error-estimation">
+      <div class="page-card fade-in" style="max-width: 720px;">
+        <h2 style="margin-top: 0;">One more estimation</h2>
+        <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 20px;">
+          You have just estimated how long the procedure took. Now, we would like you to think about
+          the quality of the applications that participants submitted.
+        </p>
+
+        <div class="estimation-block estimation-block--overall" style="border-color: #e67700;">
+          <div class="estimation-block__header">
+            <span class="estimation-block__icon">⚠️</span>
+            <span class="estimation-block__label">Application quality estimate</span>
+          </div>
+          <div class="estimation-block__prompt">
+            When completing the procedure, participants could submit applications containing
+            substantive errors — for example, providing <strong>incorrect personal details</strong>
+            that don't match the official documents, making a <strong>wrong eligibility decision</strong>,
+            selecting <strong>inappropriate supporting documents</strong>, or entering <strong>incorrect
+            vehicle information</strong>. These are the kind of errors that would lead to the
+            application being <strong>rejected or delayed</strong> by the administration.
+            <br><br>
+            <em>Note: we are not asking about minor formatting issues (like typos that were immediately
+            corrected). We are asking about substantive mistakes in the final submitted application
+            — errors that the applicant may not have even noticed.</em>
+            <br><br>
+            <strong>What percentage of submitted applications do you think contained at least one
+            error serious enough to cause the application to be rejected?</strong>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; margin: 16px 0 8px;">
+            <input type="number" class="estimation-block__input" id="error-rate-input"
+              min="0" max="100" step="1" placeholder="—" aria-label="Rejection rate percentage"
+              style="width: 80px; text-align: center;">
+            <span class="estimation-block__unit" style="font-size: 16px;">%</span>
+            <span style="font-size: 13px; color: var(--text-muted);">(0% = no application had serious errors, 100% = every application had at least one)</span>
+          </div>
+          <div class="estimation-block__confidence" data-block-id="error_rate">
+            <span class="estimation-block__confidence-label">Your confidence in this estimate:</span>
+            <div class="likert-scale">
+              <span class="likert-anchor likert-anchor--low">Not at all<br>confident</span>
+              <button class="likert-btn" data-block-id="error_rate" data-level="1">1</button>
+              <button class="likert-btn" data-block-id="error_rate" data-level="2">2</button>
+              <button class="likert-btn" data-block-id="error_rate" data-level="3">3</button>
+              <button class="likert-btn" data-block-id="error_rate" data-level="4">4</button>
+              <button class="likert-btn" data-block-id="error_rate" data-level="5">5</button>
+              <span class="likert-anchor likert-anchor--high">Extremely<br>confident</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="btn-group" style="justify-content: flex-end; margin-top: 24px;">
+          <button class="btn btn-primary" id="error-rate-submit">Continue &#8594;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
          PAGE 4: SUMMARY (detailed condition only)
          ======================================================== -->
     <div class="task-page" id="page-summary">
@@ -149,20 +207,39 @@
             </div>
           </div>
 
-          <div class="form-group">
-            <label>Any comments about the task or your estimates? (optional)</label>
-            <textarea name="feedback" rows="4" style="width:100%;max-width:500px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
-          </div>
         </form>
 
         <div class="btn-group" style="justify-content: flex-end;">
-          <button class="btn btn-primary" id="demo-submit">Submit and finish &#8594;</button>
+          <button class="btn btn-primary" id="demo-submit">Continue &#8594;</button>
         </div>
       </div>
     </div>
 
     <!-- ========================================================
-         PAGE 6: COMPLETION (shared)
+         PAGE 6: FEEDBACK (shared — pilot)
+         ======================================================== -->
+    <div class="task-page" id="page-feedback">
+      <div class="page-card fade-in">
+        <h1>Feedback</h1>
+        <p>This study is a pilot. Our main goal is to improve the task before running the full study.</p>
+        <p>We would really appreciate any feedback you have — especially anything that was unclear, confusing, or could be improved. Your input is very helpful to us.</p>
+
+        <form id="feedback-form">
+          <div class="form-group">
+            <label><strong>Your feedback (optional)</strong></label>
+            <p style="font-size: 13px; color: #505a5f; margin: 4px 0 8px;">Please share anything about your experience: what worked, what was confusing, what you would change.</p>
+            <textarea name="pilot_feedback" rows="6" style="width:100%;max-width:600px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
+          </div>
+        </form>
+
+        <div class="btn-group" style="justify-content: flex-end;">
+          <button class="btn btn-primary" id="feedback-submit">Submit and finish &#8594;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         PAGE 7: COMPLETION (shared)
          ======================================================== -->
     <div class="task-page" id="page-complete">
       <div class="page-card fade-in" style="text-align: center; padding: 48px 32px;">
