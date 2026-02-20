@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 const EXPORT_KEY = process.env.EXPORT_KEY || 'research2025';
 
 app.use(cors());
@@ -274,10 +274,10 @@ const blockName = id => BLOCK_NAMES[id] || id.replace(/_/g, ' ');
 // Map estimation blocks to procedure task page groups (for ground truth matching)
 const BLOCK_TO_PROCEDURE_PAGES = {
   entering_personal_details: ['applicant_details'],
-  reading_eligibility: ['eligibility_rules', 'eligibility_decision'],
+  reading_eligibility: ['eligibility_rules'],
   selecting_documents: ['doc_upload_eligibility', 'doc_upload_residence'],
   entering_vehicle_info: ['vehicle_info', 'vehicle_category', 'vehicle_fuel', 'vehicle_env_class'],
-  declaration_submit: ['declaration'],
+  declaration_submit: ['application_review'],
 };
 
 // Procedure task ground truth — configurable
@@ -291,7 +291,7 @@ let PROCEDURE_GROUND_TRUTH = {
 };
 
 // Try to fetch procedure task ground truth
-const PROCEDURE_STATS_URL = process.env.PROCEDURE_STATS_URL || 'http://localhost:3000/api/stats?key=research2025';
+const PROCEDURE_STATS_URL = process.env.PROCEDURE_STATS_URL || 'http://localhost:3001/api/stats?key=research2025';
 
 async function fetchProcedureGroundTruth() {
   try {
@@ -663,7 +663,7 @@ a{color:#1864ab}
 </div>
 
 <h3>Import into R</h3>
-<pre>df &lt;- read.csv("http://YOUR_SERVER:3001/api/export/csv?key=${EXPORT_KEY}")
+<pre>df &lt;- read.csv("http://YOUR_SERVER:3002/api/export/csv?key=${EXPORT_KEY}")
 completed &lt;- df[df$$completed == "true", ]
 detailed &lt;- completed[completed$$condition == "detailed", ]
 simple   &lt;- completed[completed$$condition == "simple", ]
@@ -676,7 +676,7 @@ wilcox.test(detailed$$total_estimate_seconds, simple$$total_estimate_seconds)</p
 <pre>import pandas as pd
 from scipy import stats
 
-df = pd.read_csv("http://YOUR_SERVER:3001/api/export/csv?key=${EXPORT_KEY}")
+df = pd.read_csv("http://YOUR_SERVER:3002/api/export/csv?key=${EXPORT_KEY}")
 completed = df[df.completed == "true"]
 detailed = completed[completed.condition == "detailed"]
 simple   = completed[completed.condition == "simple"]
@@ -727,7 +727,7 @@ fetch('/api/stats?key=' + K).then(r => r.json()).then(s => {
   // ── Section 2: Ground Truth ──
   const gt = s.ground_truth || {};
   if (!gt.configured) {
-    document.getElementById('s2-status').innerHTML = '<div class="config-box">⚠ Ground truth not available. Make sure the procedure task server is running on port 3000 with data collected. The dashboard will auto-fetch when available.</div>';
+    document.getElementById('s2-status').innerHTML = '<div class="config-box">⚠ Ground truth not available. Make sure the procedure task server is running on port 3001 with data collected. The dashboard will auto-fetch when available.</div>';
   } else {
     document.getElementById('s2-status').innerHTML = '<div class="legend" style="border-left:3px solid #2b8a3e">✓ Ground truth loaded from procedure task.</div>';
     document.getElementById('s2-cards').innerHTML = [

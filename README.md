@@ -8,9 +8,9 @@ A Prolific task that asks participants to estimate how long the Green Zone Vehic
 cd "estimation task"
 npm install
 npm start
-# → Task: http://localhost:3001
-# → Dashboard: http://localhost:3001/dashboard?key=research2025
-# → CSV Export: http://localhost:3001/api/export/csv?key=research2025
+# → Task: http://localhost:3002
+# → Dashboard: http://localhost:3002/dashboard?key=research2025
+# → CSV Export: http://localhost:3002/api/export/csv?key=research2025
 ```
 
 Requires **Node.js 18+**.
