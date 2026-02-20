@@ -111,7 +111,7 @@
   }
 
   function getProlificUrl() {
-    return 'https://app.prolific.com/submissions/complete?cc=XXXXXXX';
+    return 'https://app.prolific.com/submissions/complete?cc=C1CO4XAL';
   }
 
   // ============================================================
