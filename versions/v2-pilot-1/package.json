@@ -1,0 +1,18 @@
+{
+  "name": "sludge-estimation-task",
+  "version": "1.0.0",
+  "description": "Prolific task: estimate time for Green Zone permit procedure via interactive process map",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}

@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Administrative Procedure Study</title>
+  <title>Time Estimation Task — Administrative Procedure Study</title>
   <link rel="stylesheet" href="/css/style.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%231864AB'/><text x='50%25' y='55%25' text-anchor='middle' dominant-baseline='middle' fill='white' font-size='16' font-family='sans-serif'>&#128203;</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%231864AB'/><text x='50%25' y='55%25' text-anchor='middle' dominant-baseline='middle' fill='white' font-size='16' font-family='sans-serif'>&#9201;</text></svg>">
 </head>
 <body>
 
@@ -14,9 +14,9 @@
        ============================================================ -->
   <header class="task-header">
     <div class="task-header__inner">
-      <span class="task-header__icon">&#128203;</span>
-      <span class="task-header__title">Administrative Procedure Study</span>
-      <span class="task-header__subtitle">Research Task</span>
+      <span class="task-header__icon">&#9201;</span>
+      <span class="task-header__title">Time Estimation Task</span>
+      <span class="task-header__subtitle">Administrative Procedure Study <span id="condition-label" class="task-header__condition"></span></span>
     </div>
   </header>
 
@@ -78,10 +78,15 @@
         <h2>Your task</h2>
         <p>You will be asked to <strong>estimate how long it took participants, on average, to complete the procedure itself</strong> — from the first form page (entering personal details) to clicking "Submit application". This does <strong>not</strong> include the time spent reading the consent form or the task instructions beforehand. Please be as precise as possible — you can give your estimates in both minutes and seconds.</p>
 
+        <!-- Simple condition: estimation is rendered inline here (no separate page) -->
+        <div id="simple-inline-estimation"></div>
+
         <div class="btn-group" style="justify-content: flex-end;">
           <button class="btn btn-primary" id="intro-continue">Begin estimation &#8594;</button>
         </div>
       </div>
+
+      <div id="detailed-inline-estimation"></div>
     </div>
 
     <!-- ========================================================
@@ -98,65 +103,6 @@
          ======================================================== -->
     <div class="task-page" id="page-simple-estimation">
       <div id="simple-content" class="simple-estimation-container"></div>
-    </div>
-
-    <!-- ========================================================
-         PAGE 3C: ERROR RATE ESTIMATION (both conditions)
-         ======================================================== -->
-    <div class="task-page" id="page-error-estimation">
-      <div class="page-card fade-in" style="max-width: 720px;">
-        <h2 style="margin-top: 0;">One more estimation</h2>
-        <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 20px;">
-          You have just estimated how long the procedure took. Now, we would like you to think about
-          the quality of the applications that participants submitted.
-        </p>
-
-        <div class="estimation-block estimation-block--overall" style="border-color: #e67700;">
-          <div class="estimation-block__header">
-            <span class="estimation-block__icon">⚠️</span>
-            <span class="estimation-block__label">Application quality estimate</span>
-          </div>
-          <div class="estimation-block__prompt">
-            Participants had to read official documents (driving licence, vehicle registration, etc.)
-            and transfer the correct information into the application form. They also had to assess
-            eligibility and select the right supporting documents.
-            <br><br>
-            A <strong>quality error</strong> means the submitted application contained at least one
-            substantive mistake — for example, copying the wrong information from a document,
-            misjudging eligibility, or forgetting a required document. These are errors serious
-            enough to cause the application to be <strong>rejected</strong>.
-            <br><br>
-            We are not asking about minor typos caught by the form — only mistakes in the final
-            submission that the applicant may not have noticed.
-            <br><br>
-            <strong>What percentage of applications do you think contained at least one such error,
-            causing the application to be rejected?</strong>
-          </div>
-          <div style="display: flex; align-items: center; gap: 12px; margin: 16px 0 8px;">
-            <input type="number" class="estimation-block__input" id="error-rate-input"
-              min="0" max="100" step="1" placeholder="—" aria-label="Rejection rate percentage"
-              style="width: 80px; text-align: center;">
-            <span class="estimation-block__unit" style="font-size: 16px;">%</span>
-            <span style="font-size: 13px; color: var(--text-muted);">(0% = no application had serious errors, 100% = every application had at least one)</span>
-          </div>
-          <div class="estimation-block__confidence" data-block-id="error_rate">
-            <span class="estimation-block__confidence-label">Your confidence in this estimate:</span>
-            <div class="likert-scale">
-              <span class="likert-anchor likert-anchor--low">Not at all<br>confident</span>
-              <button class="likert-btn" data-block-id="error_rate" data-level="1">1</button>
-              <button class="likert-btn" data-block-id="error_rate" data-level="2">2</button>
-              <button class="likert-btn" data-block-id="error_rate" data-level="3">3</button>
-              <button class="likert-btn" data-block-id="error_rate" data-level="4">4</button>
-              <button class="likert-btn" data-block-id="error_rate" data-level="5">5</button>
-              <span class="likert-anchor likert-anchor--high">Extremely<br>confident</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="btn-group" style="justify-content: flex-end; margin-top: 24px;">
-          <button class="btn btn-primary" id="error-rate-submit">Continue &#8594;</button>
-        </div>
-      </div>
     </div>
 
     <!-- ========================================================
@@ -208,39 +154,20 @@
             </div>
           </div>
 
-        </form>
-
-        <div class="btn-group" style="justify-content: flex-end;">
-          <button class="btn btn-primary" id="demo-submit">Continue &#8594;</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================
-         PAGE 6: FEEDBACK (shared — pilot)
-         ======================================================== -->
-    <div class="task-page" id="page-feedback">
-      <div class="page-card fade-in">
-        <h1>Feedback</h1>
-        <p>This study is a pilot. Our main goal is to improve the task before running the full study.</p>
-        <p>We would really appreciate any feedback you have — especially anything that was unclear, confusing, or could be improved. Your input is very helpful to us.</p>
-
-        <form id="feedback-form">
           <div class="form-group">
-            <label><strong>Your feedback (optional)</strong></label>
-            <p style="font-size: 13px; color: #505a5f; margin: 4px 0 8px;">Please share anything about your experience: what worked, what was confusing, what you would change.</p>
-            <textarea name="pilot_feedback" rows="6" style="width:100%;max-width:600px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
+            <label>Any comments about the task or your estimates? (optional)</label>
+            <textarea name="feedback" rows="4" style="width:100%;max-width:500px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
           </div>
         </form>
 
         <div class="btn-group" style="justify-content: flex-end;">
-          <button class="btn btn-primary" id="feedback-submit">Submit and finish &#8594;</button>
+          <button class="btn btn-primary" id="demo-submit">Submit and finish &#8594;</button>
         </div>
       </div>
     </div>
 
     <!-- ========================================================
-         PAGE 7: COMPLETION (shared)
+         PAGE 6: COMPLETION (shared)
          ======================================================== -->
     <div class="task-page" id="page-complete">
       <div class="page-card fade-in" style="text-align: center; padding: 48px 32px;">

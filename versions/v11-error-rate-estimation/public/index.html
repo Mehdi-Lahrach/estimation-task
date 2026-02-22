@@ -107,37 +107,28 @@
       <div class="page-card fade-in" style="max-width: 720px;">
         <h2 style="margin-top: 0;">One more estimation</h2>
         <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 20px;">
-          You have just estimated how long the procedure took. Now, we would like you to think about
-          the quality of the applications that participants submitted.
+          You have just estimated how long the procedure took. Now, we would like you to estimate
+          how many applicants encountered difficulties along the way.
         </p>
 
         <div class="estimation-block estimation-block--overall" style="border-color: #e67700;">
           <div class="estimation-block__header">
             <span class="estimation-block__icon">⚠️</span>
-            <span class="estimation-block__label">Application quality estimate</span>
+            <span class="estimation-block__label">Error rate estimate</span>
           </div>
           <div class="estimation-block__prompt">
-            Participants had to read official documents (driving licence, vehicle registration, etc.)
-            and transfer the correct information into the application form. They also had to assess
-            eligibility and select the right supporting documents.
+            During the application procedure, participants could make mistakes — for example, entering information
+            in the wrong format, selecting incorrect options, or missing required fields. The system flagged these
+            errors and asked participants to correct them before continuing.
             <br><br>
-            A <strong>quality error</strong> means the submitted application contained at least one
-            substantive mistake — for example, copying the wrong information from a document,
-            misjudging eligibility, or forgetting a required document. These are errors serious
-            enough to cause the application to be <strong>rejected</strong>.
-            <br><br>
-            We are not asking about minor typos caught by the form — only mistakes in the final
-            submission that the applicant may not have noticed.
-            <br><br>
-            <strong>What percentage of applications do you think contained at least one such error,
-            causing the application to be rejected?</strong>
+            <strong>What percentage of applicants do you think made at least one error during the entire procedure?</strong>
           </div>
           <div style="display: flex; align-items: center; gap: 12px; margin: 16px 0 8px;">
             <input type="number" class="estimation-block__input" id="error-rate-input"
-              min="0" max="100" step="1" placeholder="—" aria-label="Rejection rate percentage"
+              min="0" max="100" step="1" placeholder="—" aria-label="Error rate percentage"
               style="width: 80px; text-align: center;">
             <span class="estimation-block__unit" style="font-size: 16px;">%</span>
-            <span style="font-size: 13px; color: var(--text-muted);">(0% = no application had serious errors, 100% = every application had at least one)</span>
+            <span style="font-size: 13px; color: var(--text-muted);">(0% = no one made errors, 100% = everyone made at least one error)</span>
           </div>
           <div class="estimation-block__confidence" data-block-id="error_rate">
             <span class="estimation-block__confidence-label">Your confidence in this estimate:</span>
@@ -208,39 +199,20 @@
             </div>
           </div>
 
-        </form>
-
-        <div class="btn-group" style="justify-content: flex-end;">
-          <button class="btn btn-primary" id="demo-submit">Continue &#8594;</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================
-         PAGE 6: FEEDBACK (shared — pilot)
-         ======================================================== -->
-    <div class="task-page" id="page-feedback">
-      <div class="page-card fade-in">
-        <h1>Feedback</h1>
-        <p>This study is a pilot. Our main goal is to improve the task before running the full study.</p>
-        <p>We would really appreciate any feedback you have — especially anything that was unclear, confusing, or could be improved. Your input is very helpful to us.</p>
-
-        <form id="feedback-form">
           <div class="form-group">
-            <label><strong>Your feedback (optional)</strong></label>
-            <p style="font-size: 13px; color: #505a5f; margin: 4px 0 8px;">Please share anything about your experience: what worked, what was confusing, what you would change.</p>
-            <textarea name="pilot_feedback" rows="6" style="width:100%;max-width:600px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
+            <label>Any comments about the task or your estimates? (optional)</label>
+            <textarea name="feedback" rows="4" style="width:100%;max-width:500px;padding:10px;border:2px solid var(--border);border-radius:6px;font-size:14px;font-family:inherit;"></textarea>
           </div>
         </form>
 
         <div class="btn-group" style="justify-content: flex-end;">
-          <button class="btn btn-primary" id="feedback-submit">Submit and finish &#8594;</button>
+          <button class="btn btn-primary" id="demo-submit">Submit and finish &#8594;</button>
         </div>
       </div>
     </div>
 
     <!-- ========================================================
-         PAGE 7: COMPLETION (shared)
+         PAGE 6: COMPLETION (shared)
          ======================================================== -->
     <div class="task-page" id="page-complete">
       <div class="page-card fade-in" style="text-align: center; padding: 48px 32px;">
