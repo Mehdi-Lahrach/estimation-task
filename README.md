@@ -78,12 +78,13 @@ The CSV export (`/api/export/csv?key=research2025`) includes one row per partici
 
 ## Block randomization
 
-The server uses CONSORT-compliant permuted block randomization:
+The server uses timeout-based balanced assignment:
 
-- Blocks of size 4 (2 detailed + 2 simple, Fisher-Yates shuffled)
-- Perfect balance guaranteed at every 4th participant
+- Two conditions: `detailed` and `simple`
+- Sessions older than 30 minutes that are neither complete nor submitted are ignored (their condition slot is released)
+- Assigns whichever condition has fewer active sessions; ties broken randomly
 - Researcher-forced conditions (`?CONDITION=detailed`) are excluded from the balancing count
-- Graceful fallback if server restarts mid-block: reverts to balanced coin-flip
+- Self-correcting: dropout participants' slots are naturally reclaimed
 
 ## Deployment
 
@@ -112,6 +113,24 @@ estimation task/
 │   └── CHANGELOG.txt
 └── package.json
 ```
+
+## Dashboard features
+
+The researcher dashboard (`/dashboard?key=research2025`) includes:
+
+- **Data quality**: Session counts, completion/dropout rates, condition balance, median task time
+- **Ground truth**: Auto-fetches actual procedure times from the procedure task server
+- **Estimation accuracy**: Overall and per-condition estimates vs. actual (mean, median, bias, Cohen's d)
+- **Estimation distribution chart**: SVG strip/dot plot showing individual estimates (blue = detailed, purple = simple), condition means as diamonds, and ground truth as green dashed vertical line
+- **Error rate estimation**: Mean predicted rejection rate vs. actual, by condition
+- **Confidence analysis**: Mean confidence by condition, per-block confidence breakdown
+- **Behavioral engagement**: Phases explored, steps expanded, time on task by condition
+- **Demographics**: Admin experience, vehicle permit experience, overall confidence
+- **Participant exclusion**: Accepts comma-separated Prolific PIDs to exclude from all calculations; persists in URL for bookmarking/sharing
+
+## Accuracy bonus
+
+The intro page shows a £0.50 bonus notice: the top 50% of participants whose total time estimate is closest to the actual mean completion time receive a bonus payment. This motivates careful engagement with the process map (analogous to practitioner accountability when auditing procedures).
 
 ## Relationship to main experiment
 

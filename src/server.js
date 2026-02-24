@@ -375,8 +375,14 @@ app.get('/api/stats', requireKey, async (req, res) => {
     const estMap = {};
     estimations.forEach(e => { estMap[e.session_id] = e; });
 
-    // Merge sessions with their estimation data
-    const merged = sessions.map(s => ({ ...s, estimation: estMap[s.session_id] || null }));
+    // Parse exclusion list (comma-separated Prolific PIDs)
+    const excludeParam = (req.query.exclude || '').trim();
+    const excludePids = excludeParam ? excludeParam.split(',').map(p => p.trim()).filter(Boolean) : [];
+
+    // Merge sessions with their estimation data, then apply exclusions
+    const mergedAll = sessions.map(s => ({ ...s, estimation: estMap[s.session_id] || null }));
+    const merged = mergedAll.filter(s => !excludePids.includes(s.prolific_pid));
+    const excludedCount = mergedAll.length - merged.length;
 
     const total = merged.length;
     const completed = merged.filter(s => s.completed);
@@ -504,6 +510,10 @@ app.get('/api/stats', requireKey, async (req, res) => {
       overall_bias_percent: overallBias,
       block_stats: blockStats,
 
+      // Raw estimate distributions (for charts)
+      detailed_estimates_sec: detailedEstimates,
+      simple_estimates_sec: simpleEstimates,
+
       // Error rate estimates
       error_rate_mean_all: mean(allErrRates),
       error_rate_mean_detailed: mean(detailedErrRates),
@@ -532,28 +542,6 @@ app.get('/api/stats', requireKey, async (req, res) => {
     console.error('Stats error:', err);
     res.status(500).json({ error: err.message });
   }
-});
-
-// --- Import sessions + estimations (restore after redeploy) ---
-app.post('/api/import-data', requireKey, (req, res) => {
-  try {
-    const { sessions, estimations } = req.body;
-    if (!Array.isArray(sessions) || sessions.length === 0)
-      return res.status(400).json({ error: 'sessions array required' });
-
-    const sessionsPath = path.join(DATA_DIR, 'sessions.jsonl');
-    fs.writeFileSync(sessionsPath, sessions.map(s => JSON.stringify(s)).join('\n') + '\n', 'utf8');
-
-    let importedEstimations = 0;
-    if (Array.isArray(estimations) && estimations.length > 0) {
-      const estimationsPath = path.join(DATA_DIR, 'estimations.jsonl');
-      fs.writeFileSync(estimationsPath, estimations.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
-      importedEstimations = estimations.length;
-    }
-
-    console.log(`  [IMPORT] ${sessions.length} sessions, ${importedEstimations} estimations restored`);
-    res.json({ success: true, importedSessions: sessions.length, importedEstimations });
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // --- Delete all data (piloting) ---
@@ -623,6 +611,14 @@ a{color:#1864ab}
 <h1>Estimation Task — Analysis Dashboard</h1>
 <p class="subtitle">Descriptive statistics and analysis overview. Inferential tests should be run in R/Python.</p>
 
+<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
+  <label style="font-size:14px;font-weight:600;color:#856404;">Exclude participants (Prolific PIDs, comma-separated):</label><br>
+  <input id="exclude-input" type="text" placeholder="e.g. 5cf101ea..., 65b901e6..." style="width:70%;padding:6px 10px;margin-top:6px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:monospace">
+  <button id="exclude-btn" style="padding:6px 16px;margin-left:8px;background:#1864ab;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">Apply</button>
+  <button id="exclude-clear" style="padding:6px 12px;margin-left:4px;background:#f3f2f1;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:13px">Clear</button>
+  <span id="exclude-status" style="margin-left:12px;font-size:12px;color:#666"></span>
+</div>
+
 <h2>1. Data Quality &amp; Collection Status</h2>
 <div id="s1-cards" class="stats-grid"></div>
 <div id="s1-balance" class="legend"></div>
@@ -638,6 +634,11 @@ a{color:#1864ab}
 
 <h3>3a. Overall estimates vs. actual</h3>
 <div id="s3-overview" class="stats-grid"></div>
+
+<h3>3a-bis. Distribution of total time estimates</h3>
+<p class="help">Each dot is one participant's total estimate. The dashed line shows the actual mean procedure time (ground truth).</p>
+<div id="s3-distribution" style="position:relative;height:280px;background:white;border:1px solid #e0e0e0;border-radius:8px;margin:12px 0;padding:0;overflow:hidden;"></div>
+<div id="s3-dist-legend" style="font-size:12px;color:#666;margin:6px 0 16px;display:flex;gap:20px;align-items:center;"></div>
 
 <h3>3b. Condition comparison (main hypothesis)</h3>
 <p class="help">Do detailed (summed per-block) estimates differ from simple (single overall) estimates?</p>
@@ -734,7 +735,35 @@ const biasHtml = b => {
   return '<span class="' + cls + '">' + sign + b.toFixed(1) + '%</span>';
 };
 
-fetch('/api/stats?key=' + K).then(r => r.json()).then(s => {
+// Exclusion management
+const urlParams = new URLSearchParams(window.location.search);
+const excludeInput = document.getElementById('exclude-input');
+const excludeStatus = document.getElementById('exclude-status');
+if (urlParams.get('exclude')) excludeInput.value = urlParams.get('exclude');
+function getExcludeParam() { return excludeInput.value.trim(); }
+function loadDashboard() {
+  const exclude = getExcludeParam();
+  const excludeQ = exclude ? '&exclude=' + encodeURIComponent(exclude) : '';
+  fetchStats(excludeQ);
+  if (exclude) {
+    const url = new URL(window.location);
+    url.searchParams.set('exclude', exclude);
+    window.history.replaceState({}, '', url);
+    excludeStatus.textContent = 'Excluding ' + exclude.split(',').filter(Boolean).length + ' participant(s)';
+    excludeStatus.style.color = '#c92a2a';
+  } else {
+    const url = new URL(window.location);
+    url.searchParams.delete('exclude');
+    window.history.replaceState({}, '', url);
+    excludeStatus.textContent = '';
+  }
+}
+document.getElementById('exclude-btn').onclick = loadDashboard;
+document.getElementById('exclude-clear').onclick = function() { excludeInput.value = ''; loadDashboard(); };
+excludeInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') loadDashboard(); });
+
+function fetchStats(excludeQ) {
+fetch('/api/stats?key=' + K + (excludeQ||'')).then(r => r.json()).then(s => {
   // ── Section 1: Data Quality ──
   const dropRate = s.dropout_rate || 0;
   document.getElementById('s1-cards').innerHTML = [
@@ -780,6 +809,75 @@ fetch('/api/stats?key=' + K).then(r => r.json()).then(s => {
     card('Actual Mean', gt.configured ? fmt(gt.totalMeanSec) : '—', 'green'),
     card('Overall Bias', biasHtml(overallBias), ''),
   ].join('');
+
+  // Distribution chart (strip/dot plot with both conditions)
+  (function() {
+    const container = document.getElementById('s3-distribution');
+    const detailed = (s.detailed_estimates_sec || []).slice();
+    const simple = (s.simple_estimates_sec || []).slice();
+    const allPts = [...detailed, ...simple];
+    const gtSec = gt.configured ? gt.totalMeanSec : null;
+    if (allPts.length === 0) {
+      container.innerHTML = '<p style="padding:20px;color:#666">No estimates yet.</p>';
+    } else {
+      const PAD_L = 50, PAD_R = 30, PAD_T = 30, PAD_B = 50;
+      const W = container.offsetWidth || 800;
+      const H = 280;
+      const maxSec = Math.max(...allPts, gtSec || 0) * 1.1;
+      const minSec = 0;
+      const xScale = sec => PAD_L + (sec - minSec) / (maxSec - minSec) * (W - PAD_L - PAD_R);
+      let svg = '<svg width="'+W+'" height="'+H+'" style="display:block">';
+      // X-axis ticks (every minute)
+      const tickStep = maxSec > 1200 ? 300 : maxSec > 600 ? 120 : 60;
+      for (let t = 0; t <= maxSec; t += tickStep) {
+        const x = xScale(t);
+        svg += '<line x1="'+x+'" y1="'+PAD_T+'" x2="'+x+'" y2="'+(H-PAD_B)+'" stroke="#e0e0e0" stroke-width="1"/>';
+        svg += '<text x="'+x+'" y="'+(H-PAD_B+18)+'" text-anchor="middle" font-size="11" fill="#666">'+(t>=60?Math.floor(t/60)+'m'+(t%60>0?' '+t%60+'s':''):t+'s')+'</text>';
+      }
+      // Ground truth line
+      if (gtSec) {
+        const gx = xScale(gtSec);
+        svg += '<line x1="'+gx+'" y1="'+(PAD_T-5)+'" x2="'+gx+'" y2="'+(H-PAD_B)+'" stroke="#2b8a3e" stroke-width="2" stroke-dasharray="6,4"/>';
+        svg += '<text x="'+gx+'" y="'+(PAD_T-10)+'" text-anchor="middle" font-size="11" fill="#2b8a3e" font-weight="600">Actual: '+fmt(gtSec)+'</text>';
+      }
+      // Detailed dots (row 1)
+      const yDetailed = PAD_T + (H - PAD_T - PAD_B) * 0.35;
+      const ySimple = PAD_T + (H - PAD_T - PAD_B) * 0.65;
+      svg += '<text x="'+(PAD_L-8)+'" y="'+(yDetailed+4)+'" text-anchor="end" font-size="11" fill="#1864ab" font-weight="600">Detailed</text>';
+      svg += '<text x="'+(PAD_L-8)+'" y="'+(ySimple+4)+'" text-anchor="end" font-size="11" fill="#862e9c" font-weight="600">Simple</text>';
+      // Jitter helper
+      function jitter(vals, baseY) {
+        var dots = '';
+        var sorted = vals.slice().sort(function(a,b){return a-b;});
+        sorted.forEach(function(v, i) {
+          var x = xScale(v);
+          var yOff = (i % 2 === 0 ? -1 : 1) * (Math.floor(i/2) % 3) * 6;
+          dots += '<circle cx="'+x+'" cy="'+(baseY+yOff)+'" r="6" opacity="0.7" stroke="white" stroke-width="1"><title>'+fmt(v)+'</title></circle>';
+        });
+        return dots;
+      }
+      svg += '<g fill="#1864ab">'+jitter(detailed, yDetailed)+'</g>';
+      svg += '<g fill="#862e9c">'+jitter(simple, ySimple)+'</g>';
+      // Means as diamonds
+      if (detailed.length > 0) {
+        var dm = detailed.reduce(function(a,b){return a+b;},0)/detailed.length;
+        var dx = xScale(dm);
+        svg += '<polygon points="'+(dx)+','+(yDetailed-9)+' '+(dx+6)+','+(yDetailed)+' '+(dx)+','+(yDetailed+9)+' '+(dx-6)+','+(yDetailed)+'" fill="#1864ab" stroke="white" stroke-width="1.5"><title>Detailed mean: '+fmt(dm)+'</title></polygon>';
+      }
+      if (simple.length > 0) {
+        var sm = simple.reduce(function(a,b){return a+b;},0)/simple.length;
+        var sx = xScale(sm);
+        svg += '<polygon points="'+(sx)+','+(ySimple-9)+' '+(sx+6)+','+(ySimple)+' '+(sx)+','+(ySimple+9)+' '+(sx-6)+','+(ySimple)+'" fill="#862e9c" stroke="white" stroke-width="1.5"><title>Simple mean: '+fmt(sm)+'</title></polygon>';
+      }
+      svg += '</svg>';
+      container.innerHTML = svg;
+    }
+    document.getElementById('s3-dist-legend').innerHTML =
+      '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#1864ab" opacity="0.7"/></svg> Detailed (n='+detailed.length+')</span>'+
+      '<span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#862e9c" opacity="0.7"/></svg> Simple (n='+simple.length+')</span>'+
+      '<span><svg width="14" height="14"><polygon points="7,1 13,7 7,13 1,7" fill="#1864ab"/></svg> / <svg width="14" height="14"><polygon points="7,1 13,7 7,13 1,7" fill="#862e9c"/></svg> Condition means</span>'+
+      (gtSec ? '<span><svg width="20" height="14"><line x1="2" y1="7" x2="18" y2="7" stroke="#2b8a3e" stroke-width="2" stroke-dasharray="4,3"/></svg> Ground truth</span>' : '');
+  })();
 
   // Condition comparison
   document.getElementById('s3-condition').innerHTML = [
@@ -862,6 +960,10 @@ fetch('/api/stats?key=' + K).then(r => r.json()).then(s => {
   });
   document.getElementById('s6-tables').innerHTML = demoHtml;
 });
+} // end fetchStats
+
+// Initial load
+loadDashboard();
 
 // Delete data flow
 document.getElementById('delete-btn-1').onclick = function() {
