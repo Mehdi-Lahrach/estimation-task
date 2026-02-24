@@ -534,6 +534,28 @@ app.get('/api/stats', requireKey, async (req, res) => {
   }
 });
 
+// --- Import sessions + estimations (restore after redeploy) ---
+app.post('/api/import-data', requireKey, (req, res) => {
+  try {
+    const { sessions, estimations } = req.body;
+    if (!Array.isArray(sessions) || sessions.length === 0)
+      return res.status(400).json({ error: 'sessions array required' });
+
+    const sessionsPath = path.join(DATA_DIR, 'sessions.jsonl');
+    fs.writeFileSync(sessionsPath, sessions.map(s => JSON.stringify(s)).join('\n') + '\n', 'utf8');
+
+    let importedEstimations = 0;
+    if (Array.isArray(estimations) && estimations.length > 0) {
+      const estimationsPath = path.join(DATA_DIR, 'estimations.jsonl');
+      fs.writeFileSync(estimationsPath, estimations.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+      importedEstimations = estimations.length;
+    }
+
+    console.log(`  [IMPORT] ${sessions.length} sessions, ${importedEstimations} estimations restored`);
+    res.json({ success: true, importedSessions: sessions.length, importedEstimations });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // --- Delete all data (piloting) ---
 app.post('/api/delete-all-data', requireKey, (req, res) => {
   try {
