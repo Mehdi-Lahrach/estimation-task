@@ -74,7 +74,8 @@ The CSV export (`/api/export/csv?key=research2025`) includes one row per partici
 - **Time estimates**: Per-block estimates in minutes + seconds + confidence (detailed), or single overall estimate (simple), plus total estimated time in seconds
 - **Error rate estimate**: `error_rate_percentage` (0–100), `error_rate_confidence` (1–5)
 - **Demographics**: age, gender, education, admin experience, vehicle permit experience
-- **Interaction data**: phases explored, steps expanded, time on task
+- **Interaction data**: phases explored, steps expanded (unique step IDs), full step toggle log (every expand/collapse with timestamp), time on task
+- **Step toggle CSV columns**: `steps_expanded_list` (semicolon-separated step IDs), `step_toggle_count`, `step_expand_count`, `step_collapse_count`
 
 ## Block randomization
 
@@ -126,11 +127,11 @@ The researcher dashboard (`/dashboard?key=research2025`) includes:
 - **Confidence analysis**: Mean confidence by condition, per-block confidence breakdown
 - **Behavioral engagement**: Phases explored, steps expanded, time on task by condition
 - **Demographics**: Admin experience, vehicle permit experience, overall confidence
-- **Participant exclusion**: Accepts comma-separated Prolific PIDs to exclude from all calculations; persists in URL for bookmarking/sharing
+- **Participant data table**: Interactive table showing all sessions with checkboxes to toggle exclusion. Tick rows to exclude participants from all calculations; stats reload in real time. Also supports manual PID entry. Exclusion persists in URL for bookmarking/sharing
 
 ## Accuracy bonus
 
-The intro page shows a £0.50 bonus notice: the top 50% of participants whose total time estimate is closest to the actual mean completion time receive a bonus payment. This motivates careful engagement with the process map (analogous to practitioner accountability when auditing procedures).
+The intro page shows a £0.20 bonus notice: the top 50% of participants whose total time estimate is closest to the actual mean completion time receive a bonus payment. This motivates careful engagement with the process map (analogous to practitioner accountability when auditing procedures).
 
 ## Relationship to main experiment
 

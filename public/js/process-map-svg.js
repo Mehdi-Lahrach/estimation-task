@@ -719,10 +719,14 @@ const ProcessMapSVG = (() => {
       if (hasExpandable) {
         g.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          if (expandedSteps.has(sid)) {
+          const wasExpanded = expandedSteps.has(sid);
+          if (wasExpanded) {
             expandedSteps.delete(sid);
           } else {
             expandedSteps.add(sid);
+          }
+          if (currentOptions.onStepToggle) {
+            currentOptions.onStepToggle(sid, wasExpanded ? 'collapse' : 'expand');
           }
           internalRender();
         });
@@ -857,8 +861,12 @@ const ProcessMapSVG = (() => {
       if (hasExpandable) {
         g.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          if (expandedSteps.has(sid)) expandedSteps.delete(sid);
+          const wasExpanded = expandedSteps.has(sid);
+          if (wasExpanded) expandedSteps.delete(sid);
           else expandedSteps.add(sid);
+          if (currentOptions.onStepToggle) {
+            currentOptions.onStepToggle(sid, wasExpanded ? 'collapse' : 'expand');
+          }
           renderBlock(containerId, stepIds, phaseData);
         });
       } else {

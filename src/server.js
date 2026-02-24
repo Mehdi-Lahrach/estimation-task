@@ -224,6 +224,10 @@ app.get('/api/export/csv', requireKey, (req, res) => {
     if (est.interactions) {
       row['phases_explored'] = (est.interactions.phasesExpanded || []).length;
       row['steps_expanded'] = (est.interactions.stepsExpanded || []).length;
+      row['steps_expanded_list'] = (est.interactions.stepsExpanded || []).join('; ');
+      row['step_toggle_count'] = (est.interactions.stepToggleLog || []).length;
+      row['step_expand_count'] = (est.interactions.stepToggleLog || []).filter(e => e.action === 'expand').length;
+      row['step_collapse_count'] = (est.interactions.stepToggleLog || []).filter(e => e.action === 'collapse').length;
       row['time_on_task_ms'] = est.interactions.timeOnTaskMs || '';
     }
 
@@ -537,6 +541,28 @@ app.get('/api/stats', requireKey, async (req, res) => {
 
       // Section 6: Demographics
       demographics: demoBreakdown,
+
+      // Participant-level rows for interactive table (uses mergedAll so excluded ones are still visible)
+      excluded_count: excludedCount,
+      excluded_pids: excludePids,
+      participants: mergedAll.map(s => {
+        const est = s.estimation;
+        const totalEstSec = est?.totalEstimateSeconds || null;
+        const errRate = est?.errorRateEstimate?.percentage;
+        const taskTimeMs = est?.interactions?.timeOnTaskMs || null;
+        return {
+          prolific_pid: s.prolific_pid || '—',
+          session_id: s.session_id,
+          condition: s.condition || '—',
+          completed: !!s.completed,
+          total_estimate_sec: totalEstSec,
+          error_rate_pct: errRate !== undefined ? errRate : null,
+          task_time_sec: taskTimeMs ? Math.round(taskTimeMs / 1000) : null,
+          steps_expanded: (est?.interactions?.stepsExpanded || []).length,
+          step_toggle_count: (est?.interactions?.stepToggleLog || []).length,
+          excluded: excludePids.includes(s.prolific_pid),
+        };
+      }),
     });
   } catch (err) {
     console.error('Stats error:', err);
@@ -611,14 +637,6 @@ a{color:#1864ab}
 <h1>Estimation Task — Analysis Dashboard</h1>
 <p class="subtitle">Descriptive statistics and analysis overview. Inferential tests should be run in R/Python.</p>
 
-<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
-  <label style="font-size:14px;font-weight:600;color:#856404;">Exclude participants (Prolific PIDs, comma-separated):</label><br>
-  <input id="exclude-input" type="text" placeholder="e.g. 5cf101ea..., 65b901e6..." style="width:70%;padding:6px 10px;margin-top:6px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:monospace">
-  <button id="exclude-btn" style="padding:6px 16px;margin-left:8px;background:#1864ab;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">Apply</button>
-  <button id="exclude-clear" style="padding:6px 12px;margin-left:4px;background:#f3f2f1;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:13px">Clear</button>
-  <span id="exclude-status" style="margin-left:12px;font-size:12px;color:#666"></span>
-</div>
-
 <h2>1. Data Quality &amp; Collection Status</h2>
 <div id="s1-cards" class="stats-grid"></div>
 <div id="s1-balance" class="legend"></div>
@@ -662,6 +680,24 @@ a{color:#1864ab}
 
 <h2>6. Demographics</h2>
 <div id="s6-tables" class="dual-col"></div>
+
+<h2>7. Participant Data</h2>
+<p class="help">Interactive table showing all sessions. Tick rows to exclude participants from all calculations above. You can also type Prolific PIDs directly.</p>
+<div style="margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+  <input id="exclude-input" type="text" placeholder="Prolific PIDs to exclude (comma-separated)" style="flex:1;min-width:300px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;font-family:monospace">
+  <button id="exclude-btn" style="padding:6px 16px;background:#1864ab;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px">Apply</button>
+  <button id="exclude-clear" style="padding:6px 12px;background:#f3f2f1;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:13px">Clear</button>
+  <span id="exclude-status" style="font-size:12px;color:#666"></span>
+</div>
+<div style="max-height:500px;overflow-y:auto;border:1px solid #dee2e6;border-radius:8px;">
+<table id="participant-table" style="font-size:12px;margin:0;">
+  <thead style="position:sticky;top:0;background:white;z-index:1;"><tr>
+    <th style="width:30px"><input type="checkbox" id="select-all-chk" title="Select/deselect all"></th>
+    <th>Prolific PID</th><th>Condition</th><th>Status</th><th>Estimate</th><th>Error Rate Est.</th><th>Task Time</th><th>Steps Expanded</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+</div>
 
 <div class="export">
 <h2 style="border:none;margin-top:0">Export Data</h2>
@@ -959,8 +995,52 @@ fetch('/api/stats?key=' + K + (excludeQ||'')).then(r => r.json()).then(s => {
     demoHtml += '<div><h3>' + label + '</h3><table><thead><tr><th>Response</th><th>N</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="3">No data</td></tr>') + '</tbody></table></div>';
   });
   document.getElementById('s6-tables').innerHTML = demoHtml;
+
+  // ── Participant data table ──
+  var participants = s.participants || [];
+  var excludedPids = new Set((getExcludeParam() || '').split(',').map(function(p){return p.trim()}).filter(Boolean));
+  var ptbody = document.querySelector('#participant-table tbody');
+  ptbody.innerHTML = participants.map(function(p) {
+    var isExcl = excludedPids.has(p.prolific_pid);
+    var statusLabel = p.completed ? '<span style="color:#2b8a3e;font-weight:600">completed</span>' : '<span style="color:#e67700;font-weight:600">dropped</span>';
+    var estLabel = p.total_estimate_sec ? fmt(p.total_estimate_sec) : '—';
+    var errLabel = p.error_rate_pct !== null ? p.error_rate_pct + '%' : '—';
+    var taskLabel = p.task_time_sec ? fmt(p.task_time_sec) : '—';
+    var condTag = p.condition === 'detailed' ? '<span class="cond-tag cond-tag--detailed">Detailed</span>' : p.condition === 'simple' ? '<span class="cond-tag cond-tag--simple">Simple</span>' : p.condition;
+    return '<tr style="'+(isExcl?'background:#fff3cd;opacity:0.7;':'')+'cursor:pointer" data-pid="'+p.prolific_pid+'">' +
+      '<td><input type="checkbox" class="excl-chk" data-pid="'+p.prolific_pid+'"'+(isExcl?' checked':'')+'></td>' +
+      '<td><code style="font-size:11px">'+p.prolific_pid+'</code></td>' +
+      '<td>'+condTag+'</td>' +
+      '<td>'+statusLabel+'</td>' +
+      '<td class="num">'+estLabel+'</td>' +
+      '<td class="num">'+errLabel+'</td>' +
+      '<td class="num">'+taskLabel+'</td>' +
+      '<td class="num">'+p.steps_expanded+'</td>' +
+      '</tr>';
+  }).join('');
+  // Wire up checkbox clicks
+  document.querySelectorAll('.excl-chk').forEach(function(chk) {
+    chk.addEventListener('change', function() {
+      syncExcludeFromCheckboxes();
+      loadDashboard();
+    });
+  });
+  document.getElementById('select-all-chk').checked = false;
+  document.getElementById('select-all-chk').onchange = null;
 });
 } // end fetchStats
+
+function syncExcludeFromCheckboxes() {
+  var pids = [];
+  document.querySelectorAll('.excl-chk:checked').forEach(function(chk) { pids.push(chk.dataset.pid); });
+  excludeInput.value = pids.join(', ');
+}
+document.getElementById('select-all-chk').addEventListener('change', function() {
+  var checked = this.checked;
+  document.querySelectorAll('.excl-chk').forEach(function(chk) { chk.checked = checked; });
+  syncExcludeFromCheckboxes();
+  loadDashboard();
+});
 
 // Initial load
 loadDashboard();

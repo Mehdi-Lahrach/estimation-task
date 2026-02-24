@@ -77,14 +77,46 @@
 
         <h2>Your task</h2>
         <p>You will be asked to <strong>estimate how long it took participants, on average, to complete the procedure itself</strong> — from the first form page (entering personal details) to clicking "Submit application". This does <strong>not</strong> include the time spent reading the consent form or the task instructions beforehand. Please be as precise as possible — you can give your estimates in both minutes and seconds.</p>
-        <p style="font-size: 14px; color: var(--text-muted); margin-top: 12px; padding: 8px 12px; background: #f0f4f8; border-radius: 6px; border-left: 3px solid var(--primary);">
-          💡 <strong style="color:var(--text)">Tip:</strong> On the next page, you will see an interactive process map. Each step may involve hidden <strong style="color:var(--text)">sub-actions</strong> that participants also had to perform.
-          <strong style="color:var(--text)">Click on any step</strong> to reveal its sub-actions — this will help you make a more informed estimate.
-        </p>
+
+        <div style="background: #fff3e0; border: 2px solid #e67700; border-radius: 8px; padding: 16px 20px; margin-top: 16px;">
+          <p style="margin: 0 0 10px; font-weight: 600; color: #e65100;">⚠ Important — Interactive steps</p>
+          <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.6;">On the next page, you will see an interactive process map. Each step may involve hidden <strong>sub-actions</strong> — smaller actions that are not immediately visible but that participants also had to perform. <strong>Click on any step to reveal its sub-actions.</strong> This will help you make a more accurate estimate.</p>
+          <p style="margin: 0 0 8px; font-size: 13px; color: #5d4037; font-weight: 600;">Try it now — click the example step below:</p>
+          <div style="max-width: 480px;">
+            <div class="step" id="example-step" style="margin-bottom: 0;">
+              <div class="step__header" onclick="document.getElementById('example-step').classList.toggle('expanded')">
+                <span class="step__number">1.1</span>
+                <span class="step__name">Boil water</span>
+                <span class="step__hidden-count">+4 sub-actions</span>
+                <span class="step__expand-icon">▸</span>
+              </div>
+              <div class="step__hidden-panel">
+                <div class="step__hidden-title">Hidden sub-actions</div>
+                <div class="hidden-action" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:13px;">
+                  <span style="color:var(--amber);font-weight:600;flex-shrink:0;">•</span>
+                  <span>Check whether the kettle already has enough water for one cup</span>
+                </div>
+                <div class="hidden-action" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:13px;">
+                  <span style="color:var(--amber);font-weight:600;flex-shrink:0;">•</span>
+                  <span>If not, fill the kettle with enough water</span>
+                </div>
+                <div class="hidden-action" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:13px;">
+                  <span style="color:var(--amber);font-weight:600;flex-shrink:0;">•</span>
+                  <span>Plug in the kettle and switch it on</span>
+                </div>
+                <div class="hidden-action" style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;font-size:13px;">
+                  <span style="color:var(--amber);font-weight:600;flex-shrink:0;">•</span>
+                  <span>Wait for the kettle to finish boiling</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p style="margin: 10px 0 0; font-size: 12px; color: #8d6e63; font-style: italic;">This is just an example — the real process map on the next page describes the actual administrative procedure.</p>
+        </div>
 
         <div style="background: #e8f5e9; border: 2px solid #2b8a3e; border-radius: 8px; padding: 14px 18px; margin-top: 16px;">
           <strong style="color: #2b8a3e;">💰 Accuracy bonus:</strong>
-          The <strong>50% of participants whose total time estimate is closest</strong> to the actual average completion time will receive a <strong>bonus payment of £0.50</strong>.
+          The <strong>50% of participants whose total time estimate is closest</strong> to the actual average completion time will receive a <strong>bonus payment of £0.20</strong>.
           Study the process map carefully to make the most accurate estimate you can.
         </div>
 

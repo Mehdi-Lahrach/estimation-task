@@ -32,7 +32,8 @@
     estimates: {},             // { blockId: { minutes: N, seconds: N, confidence: 1-5 } }
     interactions: {
       phasesExpanded: [],
-      stepsExpanded: [],
+      stepsExpanded: [],       // unique step IDs that were expanded at least once
+      stepToggleLog: [],       // full log: [{stepId, action: 'expand'|'collapse', timestamp}]
       timeOnTaskMs: 0,
     },
     errorRateEstimate: {},    // { percentage: 0-100, confidence: 1-5 }
@@ -40,6 +41,18 @@
     startTime: Date.now(),
     expandedSteps: new Set(),
   };
+
+  // Step toggle tracking callback (shared by both conditions)
+  function onStepToggle(stepId, action) {
+    state.interactions.stepToggleLog.push({
+      stepId,
+      action, // 'expand' or 'collapse'
+      timestamp: Date.now(),
+    });
+    if (action === 'expand' && !state.interactions.stepsExpanded.includes(stepId)) {
+      state.interactions.stepsExpanded.push(stepId);
+    }
+  }
 
   // ============================================================
   // URL PARAMS (Prolific integration)
@@ -402,6 +415,7 @@
       ProcessMapSVG.render('estimation-svg-map', {
         estimationZones: zones,
         onRerender: positionCards,
+        onStepToggle: onStepToggle,
       });
     }
 
@@ -629,7 +643,7 @@
 
     // Render SVG process map (no estimation zones — simple condition)
     if (typeof ProcessMapSVG !== 'undefined') {
-      ProcessMapSVG.render('simple-svg-map', { idPrefix: 'simple-' });
+      ProcessMapSVG.render('simple-svg-map', { idPrefix: 'simple-', onStepToggle: onStepToggle });
     }
 
     // Wire up inputs + confidence
